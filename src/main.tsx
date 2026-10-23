@@ -7,6 +7,7 @@ import './ui/oss/oss.css';
 import './ui/fx3d/footer.css';
 import './ui/home/home.css';
 import './ui/home/home2.css';
+import './ui/home/cine.css';
 import './ui/app.css';
 
 // Keep the untouched page so "Download replay" can clone the viewer with a run baked in.

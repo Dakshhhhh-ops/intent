@@ -6,17 +6,19 @@ import { SAMPLES } from '../samples';
 import type { CliSession } from './App';
 import { CrtSection } from './fx3d/CrtSection';
 import { SiteFooter } from './fx3d/SiteFooter';
-import { CursorFollower, RecTimecode } from './home/Extras';
+import { CursorFollower } from './home/Extras';
 import { CaseFiles, type CaseRow } from './home/CaseFiles';
 import { DiffVsReplay } from './home/DiffVsReplay';
 import { Gauges } from './home/Gauges';
-import { HeroBlackBox } from './home/HeroBlackBox';
+import { CineHero } from './home/CineHero';
+import { Preloader } from './home/Preloader';
+import { kindColor } from './RunStrip';
 import { HorizontalStory } from './home/HorizontalStory';
 import { SessionPicker } from './home/SessionPicker';
 import { TerminalDemo } from './home/TerminalDemo';
 import { useHomeMotion } from './home/useHomeMotion';
 import { Icon } from './Icon';
-import { DotPattern, Marquee, Spotlight } from './oss/Elements';
+import { Marquee } from './oss/Elements';
 import { Rich } from './Rich';
 
 function tapeColor(s: Step): string {
@@ -40,6 +42,19 @@ const TICKER: [string, Claim['verdict']][] = [
   ['Lint is clean.', 'unverified'],
 ];
 
+// The boot sequence plays once per page load.
+let bootPlayed = false;
+
+const HEXC: Record<string, string> = {
+  'var(--fail)': '#ec5d5e',
+  'var(--prompt)': '#e796f3',
+  'var(--read)': '#70b8ff',
+  'var(--edit)': '#ffc53d',
+  'var(--create)': '#1fd8a4',
+  'var(--verify)': '#0bd8b6',
+  'var(--strip-idle)': '#5a6169',
+};
+
 type Card = CaseRow & { trace: Trace; analysis: Analysis; text: string; contradicted: number };
 
 export function Home({
@@ -62,6 +77,7 @@ export function Home({
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
+  const [ready, setReady] = useState(bootPlayed);
   useHomeMotion(root);
 
   const cards = useMemo(
@@ -109,52 +125,16 @@ export function Home({
       <div className="grain" aria-hidden="true" />
 
       {/* ------------------------------------------------------------ hero */}
-      <section className="h2-hero">
-        <DotPattern />
-        <Spotlight />
-        <div className="h2-grid">
-          <div className="h-hero-meta" data-rise data-rise-now>
-            <p className="mono-intro">
-              Intent Replay — v0.1
-              <br />
-              A flight recorder for AI coding agents.
-              <br />
-              Reads Claude Code and Codex CLI logs.
-            </p>
-            <RecTimecode />
-          </div>
-
-          <h1 className="h2-title" data-reveal data-reveal-now>
-            Debug what your agent <em>actually</em> did.
-          </h1>
-
-          <div className="h2-stage" data-rise data-rise-now data-rise-delay="0.2">
-            {hero && <HeroBlackBox trace={hero.trace} analysis={hero.analysis} onOpen={() => onSample(hero.id)} />}
-          </div>
-
-          <div className="h-hero-bottom" data-rise data-rise-now data-rise-delay="0.45">
-            <p className="h-lede">
-              The diff shows <b>what</b> changed. Intent Replay shows <b>why</b>: what the agent read, ran and said at every step, and whether its “all tests
-              pass” was true.
-            </p>
-            <div className="h-ctas">
-              {hero && (
-                <button className="cta cta-primary vf" onClick={() => onSample(hero.id)}>
-                  <span>See a run</span>
-                  <Icon name="next" size={18} />
-                </button>
-              )}
-              <button className="cta vf" onClick={pick}>
-                <span>Open a log</span>
-                <Icon name="upload" size={16} />
-              </button>
-            </div>
-            <p className="h-privacy">
-              <Icon name="lock" size={13} /> Runs in your browser · nothing uploaded · secrets masked
-            </p>
-          </div>
-        </div>
-      </section>
+      {!bootPlayed && hero && (
+        <Preloader
+          colors={hero.trace.steps.map((st) => HEXC[kindColor(st)] ?? '#3a3d44')}
+          onDone={() => {
+            bootPlayed = true;
+            setReady(true);
+          }}
+        />
+      )}
+      {hero && <CineHero trace={hero.trace} analysis={hero.analysis} ready={ready} onOpen={() => onSample(hero.id)} onPick={pick} />}
 
       {/* ------------------------------------------------------------ claims marquee */}
       <section className="h-claims" aria-label="Claims Intent Replay checks">

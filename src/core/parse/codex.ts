@@ -111,6 +111,26 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
       });
     }
     const targets = readParsed.length ? readParsed.map((p) => String(p.path ?? p.name)) : shellReadTargets(c);
+    const onlyLooking = !failed && categories.every((x) => x === 'read' || x === 'search');
+    if (onlyLooking && targets.length) {
+      // e.g. `Get-Content a.js; Get-Content b.js` or `cat a.js`
+      const files = targets.map((x) => rel(x));
+      const single = files.length === 1 && /^\s*(cat|type|Get-Content|gc)\s+(-Raw\s+)?["']?[^\s|;&]+["']?\s*$/i.test(c);
+      return push({
+        t, kind: 'read', actor: 'agent', tool: 'shell', intent: lastIntent,
+        title: files.length === 1 ? `Read ${files[0]}` : `Read ${files.length} files: ${files.join(', ')}`,
+        files,
+        read: { path: files[0], full: single, viaShell: true, content: single ? out : undefined },
+        command: { cmd: c, exitCode, failed, output: out, categories, durationMs },
+      });
+    }
+    if (onlyLooking && categories.includes('search')) {
+      return push({
+        t, kind: 'search', actor: 'agent', tool: 'shell', intent: lastIntent, title: truncate(oneLine(c), 120),
+        search: { pattern: c, output: out.slice(0, 6000) },
+        command: { cmd: c, exitCode, failed, output: out, categories, durationMs },
+      });
+    }
     const s = push({
       t, kind: 'command', actor: 'agent', tool: 'shell', intent: lastIntent, title: truncate(oneLine(c), 120),
       files: targets.map((x) => rel(x)),

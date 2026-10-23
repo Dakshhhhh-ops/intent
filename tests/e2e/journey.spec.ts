@@ -43,6 +43,13 @@ test('recorded runs open and look clean', async ({ page }) => {
   }
 });
 
+test('the real session sample shows a contradicted claim', async ({ page }) => {
+  await page.goto(`${app}?sample=taskforge-handrail`);
+  const claim = page.locator('.claim', { hasText: 'all 6 tests pass' });
+  await expect(claim.locator('.stamp')).toHaveText('Contradicted');
+  await expect(page.locator('.bv-proof .ev-exit')).toContainText('hidden by');
+});
+
 test('replay keyboard and playback', async ({ page }) => {
   await page.goto(`${app}?sample=cart-rounding#replay/1`);
   await expect(page.locator('.tape-controls .pos')).toContainText('Step 1 of');

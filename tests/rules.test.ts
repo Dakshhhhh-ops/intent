@@ -534,3 +534,17 @@ describe('analyze verdict', () => {
     expect(a.findings.map((f) => f.id)).toEqual(a.findings.map((_, i) => `f${i}`));
   });
 });
+
+describe('files outside the project', () => {
+  it('ignores scratch test files for blind edits and weakened tests, however the path is spelled', () => {
+    for (const path of ['/tmp/qa/tests/flaky.spec.ts', 'C:/Users/me/AppData/Local/Temp/qa/flaky.spec.ts', '~/AppData/Local/Temp/qa/flaky.spec.ts']) {
+      const r = new Run();
+      r.prompt('check flakiness');
+      r.cmd('npx playwright test', { exit: 1, output: '1 failed' });
+      r.write(path, "expect(x).toBe('Done');", 'update', "expect(x).toBe('Done');\nexpect(y).toBe(1);");
+      r.edit(path, "expect(x).toBe('Done');\nexpect(y).toBe(1);", "expect(x).toBe('To do');");
+      expect(findingsOf(r, 'blind-edit')).toEqual([]);
+      expect(findingsOf(r, 'weakened-tests')).toEqual([]);
+    }
+  });
+});

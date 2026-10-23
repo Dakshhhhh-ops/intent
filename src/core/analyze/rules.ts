@@ -19,6 +19,14 @@ type Rule = (ctx: RuleContext) => Omit<Finding, 'id'>[];
 const plural = (n: number, w: string, ws = `${w}s`) => `${n} ${n === 1 ? w : ws}`;
 const stepRef = (id: number) => `step ${id + 1}`;
 
+/**
+ * Outside the project: the parsers make project files relative, so anything absolute or under the
+ * home folder (`~/…`, as shared samples spell it) is a scratch or temp file, not the code under review.
+ */
+export function outsideProject(p: string): boolean {
+  return /^([a-zA-Z]:)?[\\/]|^~[\\/]/.test(p);
+}
+
 /** Lines removed and added by one edit step. */
 export function lineDelta(s: Step): { added: string[]; removed: string[] } {
   const e = s.edit;
@@ -83,7 +91,7 @@ const weakenedTests: Rule = ({ steps, files }) => {
       lastTestFailed = failedAs(s.command, 'test');
       continue;
     }
-    if (!s.edit || !isTestFile(s.edit.path) || createdHere.has(s.edit.path)) continue;
+    if (!s.edit || !isTestFile(s.edit.path) || createdHere.has(s.edit.path) || outsideProject(s.edit.path)) continue;
     const { added, removed } = lineDelta(s);
     const signals: string[] = [];
 
@@ -160,8 +168,7 @@ const blindEdit: Rule = ({ steps, files, readBefore }) => {
   const out: Omit<Finding, 'id'>[] = [];
   for (const f of files) {
     if (f.created) continue;
-    // Absolute paths are outside the project (scratch files, temp dirs).
-    if (/^([a-zA-Z]:)?\//.test(f.path)) continue;
+    if (outsideProject(f.path)) continue;
     const firstEdit = steps[f.edits[0]];
     if (!firstEdit?.edit || firstEdit.edit.op === 'create') continue;
     const seen = readBefore(firstEdit.id);
@@ -266,8 +273,6 @@ const SILENCERS: Silencer[] = [
 const EXCEPT_PASS: Silencer = SILENCERS.find((s) => s.label === 'except: pass')!;
 const SEV_ORDER: Record<Severity, number> = { high: 3, medium: 2, low: 1, info: 0 };
 
-/** Outside the project: absolute paths, which the parsers only keep for scratch and temp files. */
-const outsideProject = (p: string) => /^([a-zA-Z]:)?[\\/]/.test(p);
 
 const silencedErrors: Rule = ({ steps }) => {
   const byFile = new Map<string, { steps: Set<number>; kinds: Set<string>; severity: Severity; after?: string }>();

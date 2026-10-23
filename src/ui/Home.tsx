@@ -146,9 +146,9 @@ export function Home({
             <div className="h-head">
               <p className="eyebrow-mono">Sample runs</p>
               <h2 className="h-h2" data-reveal>
-                Three runs. <em>One</em> of them lied.
+                Four runs. <em>Two</em> of them lied.
               </h2>
-              <p className="h-sub">One scripted scenario with real test output, two real recorded runs.</p>
+              <p className="h-sub">A scripted scenario, a real session where the agent was caught, and the same bug handed to Claude Code and Codex.</p>
             </div>
             <CaseFiles
               rows={cards}

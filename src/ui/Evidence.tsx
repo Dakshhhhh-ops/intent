@@ -22,11 +22,19 @@ function pickLines(output: string, max: number): string[] {
   return out;
 }
 
+/** The shell part of a command, short: heredoc scripts collapse to <<HEREDOC and long lines are cut. The replay shows it in full. */
+function commandPreview(cmd: string): string {
+  const code = shellCode(cmd).replace(/\s*\n\s*/g, ' ⏎ ');
+  return code.length > 220 ? `${code.slice(0, 218)}…` : code;
+}
+
 /** The pipe that swallowed a command's exit code (`| tail`, `|| true`), if any. */
 function maskingPipe(cmd: string): string | null {
   if (!masksExitCode(cmd)) return null;
   const code = shellCode(cmd);
-  const m = code.match(/\|\|\s*(true|exit 0|:)|\|\s*(head|tail|grep|tee|Select-Object|select|more|less|sort|wc)\b/i);
+  // The last one: in a chain, the check that reports the result usually runs last.
+  const all = [...code.matchAll(/\|\|\s*(true|exit 0|:)|\|\s*(head|tail|grep|tee|Select-Object|select|more|less|sort|wc)\b/gi)];
+  const m = all[all.length - 1];
   return m ? (m[1] ? `|| ${m[1]}` : `| ${m[2]}`) : 'a pipe';
 }
 
@@ -53,7 +61,7 @@ export function Evidence({ step, onOpen }: { step: Step; onOpen: (id: number) =>
         {head}
         <div className="ev-term">
           <div className="ev-cmd">
-            <span>$</span> {c.cmd}
+            <span>$</span> {commandPreview(c.cmd)}
             {hiddenBy ? (
               <span className="ev-exit masked" title="The command exited 0 only because the pipe hid the real exit code; the output shows failures.">
                 <s>exit {c.exitCode ?? 0}</s> · hidden by {hiddenBy}

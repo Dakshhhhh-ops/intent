@@ -22,6 +22,11 @@ export function RunHeader() {
   const label = trace.label ?? (source.kind === 'cli' ? 'Local session' : source.kind === 'file' ? 'Opened file' : undefined);
   return (
     <div className="runhead" ref={ref}>
+      {source.live && (
+        <span className="live-pill" title={source.updatedAt ? `Updated ${new Date(source.updatedAt).toLocaleTimeString()}` : 'Waiting for the agent'}>
+          <span className="dot" /> Live
+        </span>
+      )}
       <span className={`verdict-pill ${analysis.verdict.level}`} title={analysis.verdict.summary}>
         <span className="dot" />
         {analysis.verdict.label}

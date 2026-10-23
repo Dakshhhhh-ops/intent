@@ -6,6 +6,7 @@ import { parseTrace } from '../src/core/parse/detect';
 import { toIntentTrace } from '../src/core/parse/intentTrace';
 import { formatDuration, toMarkdown } from '../src/core/report/markdown';
 import type { Severity } from '../src/core/types';
+import { traceTag } from '../src/core/embed';
 import { injectBoot, startServer, viewerHtmlPath } from './server';
 import { inside, listSessions, type SessionInfo } from './sessions';
 
@@ -27,6 +28,7 @@ ${bold('Usage')}
   intent-replay                      open the session picker for this folder in your browser
   intent-replay list [--all]         list Claude Code / Codex sessions (this folder, or all)
   intent-replay open <target>        replay a session in the browser
+  intent-replay watch [target]       follow a session live while the agent works (default: latest)
   intent-replay report <target>      print a PR-ready Markdown report   [--out file] [--json]
   intent-replay check <target>       exit 1 if findings at/above a level [--fail-on high|medium|low]
   intent-replay export <target>      write a self-contained HTML replay  [-o replay.html]
@@ -62,7 +64,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '-v') flags.version = true;
     else pos.push(a);
   }
-  const known = ['list', 'open', 'report', 'check', 'export', 'help'];
+  const known = ['list', 'open', 'watch', 'report', 'check', 'export', 'help'];
   if (pos[0] && !known.includes(pos[0])) return { cmd: 'open', target: pos[0], flags };
   return { cmd: pos[0] ?? 'picker', target: pos[1], flags };
 }
@@ -127,13 +129,14 @@ function openBrowser(url: string) {
   }
 }
 
-async function serve(flags: Args['flags'], initial?: { path: string }) {
+async function serve(flags: Args['flags'], initial?: { path: string }, live = false) {
   const all = !!flags.all;
   const { url } = await startServer({
     sessions: () => scoped(all).list,
     initial: initial ? { id: 'file', path: initial.path } : undefined,
     port: Number(flags.port ?? 4848),
     cwd: process.cwd(),
+    live,
   });
   console.log(`${green('●')} Intent Replay is running at ${bold(url)}  ${dim('(Ctrl+C to stop)')}`);
   if (!flags['no-open']) openBrowser(url);
@@ -173,6 +176,13 @@ async function main() {
       console.log('');
       return serve(flags, t);
     }
+    case 'watch': {
+      const t = resolveTarget(args.target ?? 'latest', !!flags.all);
+      console.log(`${violet('●')} Following ${bold(t.label.slice(0, 70))}`);
+      console.log(dim('  The replay updates as the agent works. Claims are checked the moment they are made.'));
+      console.log('');
+      return serve(flags, t, true);
+    }
     case 'report': {
       const t = resolveTarget(args.target, !!flags.all);
       const { trace, analysis } = load(t.path);
@@ -203,8 +213,7 @@ async function main() {
       const { trace } = load(t.path);
       const out = typeof flags.out === 'string' ? flags.out : `intent-replay-${trace.id.slice(0, 8)}.html`;
       const html = readFileSync(viewerHtmlPath(), 'utf8');
-      const json = toIntentTrace(trace).replace(/</g, '\\u003c');
-      writeFileSync(out, injectBoot(html, { embedded: true }, `<script id="intent-trace" type="application/json">${json}</script>`));
+      writeFileSync(out, injectBoot(html, { embedded: true }, traceTag(toIntentTrace(trace))));
       console.log(`${green('✓')} wrote ${out} ${dim('(self-contained, secrets masked)')}`);
       return;
     }

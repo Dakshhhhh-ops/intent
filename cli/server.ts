@@ -1,7 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bootTag, injectIntoHead, stripInjected } from '../src/core/embed';
 import type { SessionInfo } from './sessions';
 
 // A tiny local server: the viewer page plus the raw logs it asks for.
@@ -16,8 +17,7 @@ export function viewerHtmlPath(): string {
 }
 
 export function injectBoot(html: string, boot: object, extra = ''): string {
-  const tag = `<script>window.__INTENT_BOOT__=${JSON.stringify(boot).replace(/</g, '\\u003c')}</script>${extra}`;
-  return html.includes('</head>') ? html.replace('</head>', `${tag}</head>`) : tag + html;
+  return injectIntoHead(stripInjected(html), bootTag(boot) + extra);
 }
 
 export function startServer(opts: {
@@ -25,6 +25,7 @@ export function startServer(opts: {
   initial?: { id: string; path: string };
   port: number;
   cwd: string;
+  live?: boolean;
 }): Promise<{ server: Server; url: string }> {
   const html = readFileSync(viewerHtmlPath(), 'utf8');
   const extraFiles = new Map<string, string>();
@@ -38,17 +39,21 @@ export function startServer(opts: {
     };
     try {
       if (url.pathname === '/' || url.pathname === '/index.html') {
-        return send(200, 'text/html; charset=utf-8', injectBoot(html, { api: '/api', session: opts.initial?.id ?? null, cwd: opts.cwd }));
+        return send(200, 'text/html; charset=utf-8', injectBoot(html, { api: '/api', session: opts.initial?.id ?? null, cwd: opts.cwd, live: !!opts.live }));
       }
       if (url.pathname === '/api/sessions') {
         const list = opts.sessions().map(({ path: _p, ...rest }) => rest);
         return send(200, 'application/json', JSON.stringify(list));
       }
-      const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/raw$/);
+      const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/(raw|stat)$/);
       if (m) {
         const id = decodeURIComponent(m[1]);
-        const path = extraFiles.get(id) ?? opts.sessions().find((s) => s.id === id)?.path;
+        const path = extraFiles.get(id) ?? opts.sessions().find((s) => s.key === id || s.id === id)?.path;
         if (!path || !existsSync(path)) return send(404, 'text/plain', 'Session not found');
+        if (m[2] === 'stat') {
+          const st = statSync(path);
+          return send(200, 'application/json', JSON.stringify({ size: st.size, mtime: st.mtimeMs }));
+        }
         return send(200, 'text/plain; charset=utf-8', readFileSync(path));
       }
       send(404, 'text/plain', 'Not found');

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { bootTag, injectIntoHead, stripInjected, traceTag } from '../core/embed';
 import { toIntentTrace } from '../core/parse/intentTrace';
 import { toMarkdown } from '../core/report/markdown';
 import { Icon } from './Icon';
@@ -35,13 +36,10 @@ function slug(s: string): string {
 /** One self-contained HTML file: this viewer with the run baked in. */
 export function buildReplayHtml(traceJson: string): string {
   const base = window.__IR_PRISTINE__ ?? `<!doctype html>${document.documentElement.outerHTML}`;
-  const cleaned = base
-    .replace(/<html([^>]*?)\sdata-theme="[^"]*"/, '<html$1')
-    .replace(/<script>window\.__INTENT_BOOT__=[\s\S]*?<\/script>/g, '')
-    .replace(/<script id="intent-trace" type="application\/json">[\s\S]*?<\/script>/g, '');
-  const inject = `<script>window.__INTENT_BOOT__={"embedded":true}</script><script id="intent-trace" type="application/json">${traceJson.replace(/</g, '\\u003c')}</script>`;
-  const html = cleaned.includes('</head>') ? cleaned.replace('</head>', `${inject}</head>`) : inject + cleaned;
-  return html.startsWith('<!doctype') || html.startsWith('<!DOCTYPE') ? html : `<!doctype html>\n${html}`;
+  const cleaned = stripInjected(base).replace(/<html([^>]*?)\sdata-theme="[^"]*"/, '<html$1');
+  const html = injectIntoHead(cleaned, bootTag({ embedded: true }) + traceTag(traceJson));
+  return /^<!doctype/i.test(html) ? html : `<!doctype html>
+${html}`;
 }
 
 export function ExportMenu() {

@@ -14,12 +14,13 @@ import { RunHeader } from './RunHeader';
 
 declare global {
   interface Window {
-    __INTENT_BOOT__?: { api?: string; session?: string | null; cwd?: string; embedded?: boolean };
+    __INTENT_BOOT__?: { api?: string; session?: string | null; cwd?: string; embedded?: boolean; live?: boolean };
   }
 }
 
 export interface CliSession {
   id: string;
+  key?: string;
   agent: 'claude-code' | 'codex';
   title: string;
   cwd?: string;
@@ -52,6 +53,12 @@ export function App() {
   const [dragging, setDragging] = useState(false);
   const toastTimer = useRef<number>(0);
   const boot = window.__INTENT_BOOT__;
+  // The CLI session being shown, so it can be followed while the agent keeps working.
+  const [watching, setWatching] = useState<{ key: string; size: number } | null>(null);
+  const runRef = useRef<RunData | null>(null);
+  const stepRef = useRef(0);
+  runRef.current = run;
+  stepRef.current = step;
 
   const toast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -106,9 +113,13 @@ export function App() {
   const openSession = useCallback(
     (s: CliSession) => {
       setLoading(`Loading ${s.title.slice(0, 60)}…`);
-      fetch(`${boot?.api ?? '/api'}/sessions/${encodeURIComponent(s.id)}/raw`)
+      const key = s.key ?? s.id;
+      fetch(`${boot?.api ?? '/api'}/sessions/${encodeURIComponent(key)}/raw`)
         .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then((text) => open(text, { kind: 'cli', name: s.title }))
+        .then((text) => {
+          setWatching({ key, size: text.length });
+          open(text, { kind: 'cli', name: s.title, live: !!boot?.live });
+        })
         .catch((e) => {
           setLoading(null);
           setError(`Couldn't load that session: ${(e as Error).message}`);
@@ -129,13 +140,41 @@ export function App() {
         .then((r) => r.json())
         .then((list: CliSession[]) => setSessions(list))
         .catch(() => setSessions([]));
-      if (boot.session) openSession({ id: boot.session, agent: 'claude-code', title: 'session', mtime: 0, size: 0 });
+      if (boot.session) openSession({ id: boot.session, key: boot.session, agent: 'claude-code', title: 'session', mtime: 0, size: 0 });
       return;
     }
     const sample = new URL(location.href).searchParams.get('sample');
     if (sample) openSample(sample);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live: poll the session file; when it grows, re-analyze and keep the reader's place.
+  useEffect(() => {
+    if (!watching || !boot?.api) return;
+    let busy = false;
+    const id = window.setInterval(async () => {
+      if (busy || document.hidden) return;
+      busy = true;
+      try {
+        const st = await fetch(`${boot.api}/sessions/${encodeURIComponent(watching.key)}/stat`).then((r) => r.json());
+        if (st.size !== watching.size) {
+          const text = await fetch(`${boot.api}/sessions/${encodeURIComponent(watching.key)}/raw`).then((r) => r.text());
+          const prev = runRef.current;
+          const trace = parseTrace(text, prev?.source.name);
+          const data = buildRun(trace, { ...(prev?.source ?? { kind: 'cli', name: 'session' }), live: true, updatedAt: Date.now() });
+          const wasAtEnd = prev ? stepRef.current >= prev.trace.steps.length - 1 : true;
+          setRun(data);
+          if (wasAtEnd) setStep(trace.steps.length - 1);
+          setWatching({ key: watching.key, size: st.size });
+        }
+      } catch {
+        /* session server gone; stay on what we have */
+      } finally {
+        busy = false;
+      }
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [watching, boot?.api]);
 
   // Follow hash changes (pasted links, back/forward).
   useEffect(() => {

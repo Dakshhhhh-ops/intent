@@ -47,6 +47,7 @@ test('replay keyboard and playback', async ({ page }) => {
   await page.goto(`${app}?sample=cart-rounding#replay/1`);
   await expect(page.locator('.tape-controls .pos')).toContainText('Step 1 of');
   await page.keyboard.press('j');
+  await expect(page.locator('.tape-controls .pos')).toContainText('Step 2 of');
   await page.keyboard.press('j');
   await expect(page.locator('.tape-controls .pos')).toContainText('Step 3 of');
   await page.keyboard.press(']');
@@ -58,4 +59,24 @@ test('rejects files that are not agent logs', async ({ page }) => {
   await page.goto(app);
   await page.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello world') });
   await expect(page.getByRole('alert')).toContainText('not a Claude Code session');
+});
+
+test('CLI export and in-app download both produce a working offline replay', async ({ page }, info) => {
+  const { execFileSync } = await import('node:child_process');
+  const out = info.outputPath('cli-replay.html');
+  execFileSync(process.execPath, ['dist-cli/intent-replay.mjs', 'export', 'examples/cart-rounding.claude.jsonl', '-o', out]);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(pathToFileURL(out).href);
+  await expect(page.locator('.brief-hero h1')).toHaveText('The agent said it was done. The log disagrees.');
+
+  // Download from the app, then open the downloaded file.
+  await page.goto(`${app}?sample=csv-quotes-codex`);
+  await page.getByRole('button', { name: /Share/ }).click();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Download replay/ }).click()]);
+  const saved = info.outputPath('app-replay.html');
+  await download.saveAs(saved);
+  await page.goto(pathToFileURL(saved).href);
+  await expect(page.locator('.verdict-pill').first()).toContainText('Looks clean');
+  expect(errors).toEqual([]);
 });

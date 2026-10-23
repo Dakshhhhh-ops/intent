@@ -8,6 +8,9 @@ export interface RunSource {
   kind: 'sample' | 'file' | 'cli' | 'embedded';
   name: string;
   sampleId?: string;
+  /** Following a session that may still be growing. */
+  live?: boolean;
+  updatedAt?: number;
 }
 
 export interface RunData {

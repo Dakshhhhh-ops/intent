@@ -6,6 +6,8 @@ import { join, resolve } from 'node:path';
 
 export interface SessionInfo {
   id: string;
+  /** Stable across listings (ids are positions and shift when new sessions appear). */
+  key: string;
   path: string;
   agent: 'claude-code' | 'codex';
   title: string;
@@ -111,7 +113,7 @@ export function listSessions(): SessionInfo[] {
     if (st.size < 200) continue;
     const m = claudeMeta(p);
     if (!m.title) continue;
-    out.push({ id: '', path: p, agent: 'claude-code', title: m.title, cwd: m.cwd, mtime: st.mtimeMs, size: st.size });
+    out.push({ id: '', key: '', path: p, agent: 'claude-code', title: m.title, cwd: m.cwd, mtime: st.mtimeMs, size: st.size });
   }
   const codex: string[] = [];
   walk(codexRoot(), codex);
@@ -119,10 +121,13 @@ export function listSessions(): SessionInfo[] {
     const st = statSync(p);
     if (st.size < 200) continue;
     const m = codexMeta(p);
-    out.push({ id: '', path: p, agent: 'codex', title: m.title || 'Codex session', cwd: m.cwd, mtime: st.mtimeMs, size: st.size });
+    out.push({ id: '', key: '', path: p, agent: 'codex', title: m.title || 'Codex session', cwd: m.cwd, mtime: st.mtimeMs, size: st.size });
   }
   out.sort((a, b) => b.mtime - a.mtime);
-  out.forEach((s, i) => (s.id = String(i + 1)));
+  out.forEach((s, i) => {
+    s.id = String(i + 1);
+    s.key = keyOf(s.path);
+  });
   return out;
 }
 
@@ -138,4 +143,13 @@ export function inside(child?: string, parent?: string): boolean {
   const c = n(child);
   const p = n(parent);
   return c === p || c.startsWith(p + '/');
+}
+
+export function keyOf(path: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < path.length; i++) {
+    h ^= path.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return 's' + (h >>> 0).toString(36);
 }

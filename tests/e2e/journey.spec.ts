@@ -68,7 +68,7 @@ test('CLI export and in-app download both produce a working offline replay', asy
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(pathToFileURL(out).href);
-  await expect(page.locator('.brief-hero h1')).toHaveText('The agent said it was done. The log disagrees.');
+  await expect(page.locator('.bv-hero h1')).toHaveText('The agent said it was done. The log disagrees.');
 
   // Download from the app, then open the downloaded file.
   await page.goto(`${app}?sample=csv-quotes-codex`);

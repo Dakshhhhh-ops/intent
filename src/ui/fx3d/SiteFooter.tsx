@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../Icon';
+import { ParticleWordmark } from './ParticleWordmark';
 
 // Footer with the 3D "step rain" behind it (layout inspired by Lusion's Oryzo footer).
 
@@ -114,8 +115,9 @@ export function SiteFooter({ onSample }: { onSample?: () => void }) {
           </nav>
         </div>
 
+        <ParticleWordmark />
         <div className="sf-bottom">
-          <span className="sf-strong">Intent Replay</span>
+          <span className="sf-strong">© 2026 · MIT</span>
           <span className="sf-fine">
             Runs locally. No log ever leaves your machine.
             <br />

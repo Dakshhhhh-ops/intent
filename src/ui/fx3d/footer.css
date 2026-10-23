@@ -41,13 +41,13 @@
   z-index: -1;
   pointer-events: none;
   background:
-    linear-gradient(180deg, var(--bg) 0%, transparent 18%, transparent 72%, rgba(8, 9, 10, 0.85) 100%),
+    linear-gradient(180deg, var(--bg) 0%, transparent 18%, transparent 52%, rgba(8, 9, 10, 0.92) 70%, #08090a 82%),
     radial-gradient(60% 50% at 75% 15%, rgba(8, 9, 10, 0.55), transparent 70%);
 }
 
 :root[data-theme='light'] .sf-vignette {
   background:
-    linear-gradient(180deg, #08090a 0%, transparent 18%, transparent 72%, rgba(8, 9, 10, 0.85) 100%),
+    linear-gradient(180deg, #08090a 0%, transparent 18%, transparent 52%, rgba(8, 9, 10, 0.92) 70%, #08090a 82%),
     radial-gradient(60% 50% at 75% 15%, rgba(8, 9, 10, 0.55), transparent 70%);
 }
 
@@ -58,7 +58,7 @@
   margin: 0 auto;
   padding: 72px 32px 36px;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr auto auto;
   pointer-events: none;
 }
 
@@ -249,7 +249,7 @@ a.sf-strong:hover {
 }
 
 .sf-bottom {
-  margin-top: 56px;
+  margin-top: 18px;
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
@@ -294,4 +294,13 @@ a.sf-strong:hover {
   .sf-inner {
     padding: 56px 18px 28px;
   }
+}
+
+.particle-wordmark {
+  display: block;
+  width: 100%;
+  height: clamp(90px, 14vw, 210px);
+  margin-top: 48px;
+  color: #f4ede4;
+  pointer-events: auto;
 }

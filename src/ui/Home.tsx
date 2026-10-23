@@ -1,19 +1,20 @@
 import { useMemo, useRef, useState } from 'react';
 import { analyze } from '../core/analyze';
-import { RULE_INFO } from '../core/analyze/rules';
 import { parseTrace } from '../core/parse/detect';
-import type { Analysis, Claim, RuleId, Step, Trace } from '../core/types';
+import type { Analysis, Claim, Step, Trace } from '../core/types';
 import { SAMPLES } from '../samples';
 import type { CliSession } from './App';
+import { CrtSection } from './fx3d/CrtSection';
 import { SiteFooter } from './fx3d/SiteFooter';
 import { BlackBoxDial } from './home/BlackBoxDial';
 import { CursorFollower, RecTimecode } from './home/Extras';
 import { HowItWorks } from './home/HowItWorks';
+import { ProductShowcase } from './home/ProductShowcase';
 import { SampleList, type SampleRow } from './home/SampleList';
 import { SessionPicker } from './home/SessionPicker';
 import { useHomeMotion } from './home/useHomeMotion';
 import { Icon } from './Icon';
-import { DotPattern, MagicCard, Marquee, NumberTicker, Spotlight } from './oss/Elements';
+import { DotPattern, Marquee, NumberTicker, Spotlight } from './oss/Elements';
 import { Rich } from './Rich';
 
 function tapeColor(s: Step): string {
@@ -181,6 +182,8 @@ export function Home({
         </Marquee>
       </section>
 
+      {hero && <CrtSection trace={hero.trace} analysis={hero.analysis} onOpen={() => onSample(hero.id)} />}
+
       <div className="h-wrap">
         {sessions && (
           <section className="h-section">
@@ -232,77 +235,7 @@ export function Home({
             </h2>
             <p className="h-sub">Deterministic rules over the log. No AI, no API keys, no account.</p>
           </div>
-          <div className="bento" data-stagger>
-            <MagicCard className="tile t-claims">
-              <span className="tile-icon" style={{ color: 'var(--high)', background: 'var(--fail-soft)' }}>
-                <Icon name="quote" />
-              </span>
-              <h3>Claims, fact-checked</h3>
-              <p>Every claim in the agent's summary is stamped against the commands that really ran, with the step that proves it.</p>
-              <div className="tile-stamps">
-                <span className="stamp supported">Supported</span>
-                <span className="stamp contradicted">Contradicted</span>
-                <span className="stamp stale">Stale</span>
-                <span className="stamp unverified">Unverified</span>
-              </div>
-            </MagicCard>
-            <MagicCard className="tile t-blame">
-              <span className="tile-icon" style={{ color: 'var(--edit)', background: 'var(--edit-soft)' }}>
-                <Icon name="code" />
-              </span>
-              <h3>Blame, but for intent</h3>
-              <p>Click a changed line: the step that wrote it, the reason given, and whether the agent had even read the file.</p>
-              <div className="tile-diff mono">
-                <div className="del">− assert.equal(total, 53.97);</div>
-                <div className="add">
-                  + assert.equal(total, 54);<span className="tile-why">#14 · after a failing run</span>
-                </div>
-              </div>
-            </MagicCard>
-            <MagicCard className="tile t-replay">
-              <span className="tile-icon" style={{ color: 'var(--read)', background: 'var(--read-soft)' }}>
-                <Icon name="rewind" />
-              </span>
-              <h3>Replay the run</h3>
-              <p>Scrub every read, edit and command, chapter by chapter.</p>
-              {hero && (
-                <div className="tile-tape" aria-hidden="true">
-                  {hero.bars.map((b, i) => (
-                    <span key={i} style={{ background: b.c, height: `${b.h}%` }} />
-                  ))}
-                </div>
-              )}
-            </MagicCard>
-            <MagicCard className="tile t-rules">
-              <span className="tile-icon" style={{ color: 'var(--accent-text)', background: 'var(--accent-soft)' }}>
-                <Icon name="shield" />
-              </span>
-              <h3>12 checks a reviewer would run</h3>
-              <div className="tile-rules">
-                {(Object.keys(RULE_INFO) as RuleId[]).map((r) => (
-                  <span key={r} className="chip">
-                    {RULE_INFO[r].name}
-                  </span>
-                ))}
-              </div>
-            </MagicCard>
-            <MagicCard className="tile t-live">
-              <span className="tile-icon" style={{ color: 'var(--high)', background: 'var(--fail-soft)' }}>
-                <span className="live-dot" />
-              </span>
-              <h3>Live while it works</h3>
-              <p>
-                <code>intent-replay watch</code> follows a session as the agent writes it.
-              </p>
-            </MagicCard>
-            <MagicCard className="tile t-compare">
-              <span className="tile-icon" style={{ color: 'var(--verify)', background: 'var(--verify-soft)' }}>
-                <Icon name="layers" />
-              </span>
-              <h3>Compare agents</h3>
-              <p>Two runs of one task, side by side: exploration, proof, claims.</p>
-            </MagicCard>
-          </div>
+          {hero && <ProductShowcase analysis={hero.analysis} bars={hero.bars} />}
 
           <div className="stats-band" data-stagger>
             <div>

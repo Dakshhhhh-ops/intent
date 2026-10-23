@@ -52,4 +52,4 @@ Inter, Inter Tight, Instrument Serif and JetBrains Mono, all SIL Open Font Licen
 
 ## Design references
 
-The home page layout and motion take inspiration from Awwwards Sites of the Month winners, in particular the footer of Oryzo by Lusion (https://oryzo.ai). No code or assets from those sites are used.
+The home page layout and motion take inspiration from Awwwards Sites of the Month winners, in particular the footer of Oryzo by Lusion (https://oryzo.ai). No code or assets from those sites are used. The CRT terminal, particle wordmark and tilted product shot take visual cues from component demos on ThreeUI (https://threeui.com); they are written from scratch for this project.

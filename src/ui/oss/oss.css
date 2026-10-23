@@ -1,0 +1,193 @@
+/*! Portions adapted from Magic UI (https://magicui.design), MIT License, Copyright (c) Magic UI */
+/* Plain-CSS ports of open-source UI elements. See Elements.tsx and THIRD_PARTY_NOTICES.md. */
+
+/* Dot Pattern — fades out with a radial mask */
+.oss-dots {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  fill: var(--bg-grid);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 75%);
+}
+
+/* Spotlight — a wide, soft glow from the top */
+.oss-spotlight {
+  position: absolute;
+  left: 50%;
+  top: -340px;
+  width: 1100px;
+  height: 620px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: radial-gradient(closest-side, var(--glow), transparent);
+  filter: blur(40px);
+  opacity: 0.75;
+  animation: oss-spot-in 1.6s ease-out both;
+}
+
+@keyframes oss-spot-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -60px) scale(0.9);
+  }
+}
+
+/* Border Beam — a gradient streak travelling along the border, clipped to a 1px ring */
+.oss-beam {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  padding: 1px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+.oss-beam::after {
+  content: '';
+  position: absolute;
+  width: var(--beam-size, 220px);
+  aspect-ratio: 1;
+  background: linear-gradient(to left, var(--accent-text), var(--read), transparent);
+  offset-path: rect(0 auto auto 0 round var(--beam-size, 220px));
+  animation: oss-beam var(--beam-duration, 9s) linear infinite;
+}
+
+@keyframes oss-beam {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+/* Marquee */
+.oss-marquee {
+  --gap: 12px;
+  display: flex;
+  gap: var(--gap);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+}
+
+.oss-marquee-track {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--gap);
+  min-width: 100%;
+  justify-content: space-around;
+  animation: oss-marquee var(--marquee-duration, 40s) linear infinite;
+}
+
+.oss-marquee.reverse .oss-marquee-track {
+  animation-direction: reverse;
+}
+
+.oss-marquee:hover .oss-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes oss-marquee {
+  to {
+    transform: translateX(calc(-100% - var(--gap)));
+  }
+}
+
+/* Magic Card — pointer-following glow on the border and surface */
+.oss-magic {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.oss-magic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+  background: radial-gradient(360px circle at var(--mx, 50%) var(--my, 50%), var(--accent-soft), transparent 70%);
+}
+
+.oss-magic:hover {
+  border-color: var(--border-strong);
+}
+
+.oss-magic:hover::before {
+  opacity: 1;
+}
+
+/* Animated Shiny Text — readable text with a narrow highlight sweeping across */
+.oss-shiny {
+  --shiny-width: 90px;
+  color: color-mix(in srgb, var(--text-2) 78%, transparent);
+  background: linear-gradient(to right, transparent, var(--text) 50%, transparent) 0 0 / var(--shiny-width) 100% no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: oss-shiny 8s infinite;
+}
+
+@keyframes oss-shiny {
+  0%,
+  90%,
+  100% {
+    background-position: calc(-100% - var(--shiny-width)) 0;
+  }
+  30%,
+  60% {
+    background-position: calc(100% + var(--shiny-width)) 0;
+  }
+}
+
+/* Shimmer Button */
+.oss-shimmer {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.oss-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.28) 50%, transparent 65%) -100% 0 / 220% 100% no-repeat;
+  animation: oss-shimmer 3.2s ease-in-out infinite;
+}
+
+@keyframes oss-shimmer {
+  0%,
+  35% {
+    background-position: 160% 0;
+  }
+  100% {
+    background-position: -60% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oss-beam::after,
+  .oss-marquee-track,
+  .oss-shiny,
+  .oss-shimmer::after,
+  .oss-spotlight {
+    animation: none !important;
+  }
+}

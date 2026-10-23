@@ -25,8 +25,8 @@ export function useTheme(): [Theme, () => void] {
       /* private mode */
     }
   }, [theme]);
-  const systemDark = typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
-  const effective = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
+  // Dark unless the viewer picked light.
+  const effective = theme === 'light' ? 'light' : 'dark';
   return [theme, () => setTheme(effective === 'dark' ? 'light' : 'dark')];
 }
 
@@ -41,7 +41,7 @@ export function Header({ onHome, onHelp }: { onHome: () => void; onHelp: () => v
   const run = useContext(RunContext);
   const nav = useContext(NavContext);
   const [, toggleTheme] = useTheme();
-  const dark = typeof document !== 'undefined' && (document.documentElement.getAttribute('data-theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+  const dark = typeof document === 'undefined' || document.documentElement.getAttribute('data-theme') !== 'light';
   const [, force] = useState(0);
   const high = run ? run.analysis.findings.filter((f) => f.severity === 'high').length : 0;
 

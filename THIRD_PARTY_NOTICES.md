@@ -34,6 +34,22 @@ SOFTWARE.
 
 The color scales in `src/ui/styles.css` come from Radix Colors (https://www.radix-ui.com/colors), MIT License, Copyright (c) 2021 Radix.
 
+## Three.js
+
+The 3D footer uses three.js (https://threejs.org), MIT License, Copyright © 2010-2026 three.js authors.
+
+## GSAP
+
+Scroll animations on the home page use GSAP (https://gsap.com) under its Standard "no charge" license (https://gsap.com/standard-license).
+
+## Lenis
+
+Smooth scrolling on the home page uses Lenis (https://github.com/darkroomengineering/lenis), MIT License, Copyright (c) 2024 darkroom.engineering.
+
 ## Fonts
 
-Inter (SIL Open Font License 1.1) and JetBrains Mono (SIL Open Font License 1.1), bundled through Fontsource.
+Inter, Inter Tight, Instrument Serif and JetBrains Mono, all SIL Open Font License 1.1, bundled through Fontsource.
+
+## Design references
+
+The home page layout and motion take inspiration from Awwwards Sites of the Month winners, in particular the footer of Oryzo by Lusion (https://oryzo.ai). No code or assets from those sites are used.

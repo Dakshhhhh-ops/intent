@@ -79,8 +79,8 @@ export function Logo({ size = 24 }: { size?: number }) {
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
       <defs>
         <linearGradient id="ir-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#8f7dff" />
-          <stop offset="1" stopColor="#e879c6" />
+          <stop offset="0" stopColor="#ff9a4a" />
+          <stop offset="1" stopColor="#ec5d5e" />
         </linearGradient>
       </defs>
       <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#ir-g)" />

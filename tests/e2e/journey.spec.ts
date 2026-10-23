@@ -11,7 +11,7 @@ test('core journey: brief → contradicted claim → evidence → blame → why'
   await page.goto(app);
   await expect(page.getByRole('heading', { name: /actually/ })).toBeVisible();
 
-  await page.getByRole('button', { name: /See it on a sample run/ }).click();
+  await page.getByRole('button', { name: /See a run/ }).click();
   await expect(page.getByRole('heading', { name: 'The agent said it was done. The log disagrees.' })).toBeVisible();
 
   const claim = page.locator('.claim', { hasText: 'All tests pass.' });
@@ -83,7 +83,7 @@ test('CLI export and in-app download both produce a working offline replay', asy
 
 test('compare two agents on the same task', async ({ page }) => {
   await page.goto(app);
-  await page.getByText('Compare two agents on the same bug').click();
+  await page.getByRole('button', { name: /Same bug, two agents/ }).click();
   await expect(page.getByRole('heading', { name: 'Same task, two runs' })).toBeVisible();
   await expect(page.locator('.cmp-head .chip')).toHaveText(['Claude Code', 'Codex CLI']);
   await expect(page.locator('.panel-head h2', { hasText: 'src/csv.js' })).toBeVisible();

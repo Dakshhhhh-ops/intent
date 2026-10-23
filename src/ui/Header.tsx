@@ -75,7 +75,15 @@ export function Header({ onHome, onHelp }: { onHome: () => void; onHelp: () => v
           ))}
         </nav>
       )}
-      {!run && <div style={{ flex: 1 }} />}
+      {!run && (
+        <nav className="home-nav" aria-label="Sections">
+          <a href="#how">How it works</a>
+          <a href="#samples">Samples</a>
+          <a href="https://github.com/Dakshhhhh-ops/intent" target="_blank" rel="noreferrer">
+            GitHub ↗
+          </a>
+        </nav>
+      )}
       {run && <ExportMenu />}
       <button className="icon-btn hide-sm" onClick={onHelp} title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
         <Icon name="keyboard" />

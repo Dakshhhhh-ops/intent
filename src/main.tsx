@@ -8,6 +8,7 @@ import './ui/fx3d/footer.css';
 import './ui/home/home.css';
 import './ui/home/home2.css';
 import './ui/home/cine.css';
+import './ui/home/cases.css';
 import './ui/app.css';
 import './ui/brief.css';
 

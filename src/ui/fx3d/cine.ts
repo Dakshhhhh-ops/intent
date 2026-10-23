@@ -400,19 +400,29 @@ export function startCine(host: HTMLElement, steps: TapeStep[], state: CineState
       a.el.style.transform = `translate(${x}px, ${y}px)`;
     }
   };
-  raf = requestAnimationFrame(frame);
+  // Compile the shaders before the first frame, in parallel where the browser supports it
+  // (KHR_parallel_shader_compile), so the page never freezes while they build.
+  let started = false;
+  let alive = true;
+  const begin = () => {
+    if (!alive || started) return;
+    started = true;
+    raf = requestAnimationFrame(frame);
+    io.observe(host);
+  };
 
   const io = new IntersectionObserver(([e]) => {
-    if (e.isIntersecting && !raf) raf = requestAnimationFrame(frame);
+    if (e.isIntersecting && !raf && started) raf = requestAnimationFrame(frame);
     if (!e.isIntersecting && raf) {
       cancelAnimationFrame(raf);
       raf = 0;
     }
   });
-  io.observe(host);
+  renderer.compileAsync(scene, camera).then(begin, begin);
 
   return {
     dispose() {
+      alive = false;
       cancelAnimationFrame(raf);
       io.disconnect();
       ro.disconnect();

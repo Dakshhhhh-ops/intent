@@ -20,28 +20,35 @@ export function Preloader({ colors, onDone }: { colors: string[]; onDone: () => 
     }
     let raf = 0;
     const t0 = performance.now();
-    const MIN = 2300;
+    // Honest timing: as long as the fonts take, never less than a beat. The 3D scene starts later.
+    const MIN = 700;
     let assetsReady = false;
-    Promise.all([document.fonts?.ready ?? Promise.resolve(), import('../fx3d/cine')]).then(() => (assetsReady = true));
+    (document.fonts?.ready ?? Promise.resolve()).then(() => (assetsReady = true));
+    const finish = () => {
+      if (done.current) return;
+      done.current = true;
+      setPct(1);
+      setTimeout(() => setLeaving(true), 80);
+      setTimeout(() => onDone(), 260);
+      setTimeout(() => setGone(true), 1100);
+    };
+    const skip = () => finish();
+    addEventListener('pointerdown', skip, { once: true });
+    addEventListener('keydown', skip, { once: true });
     const tick = (t: number) => {
       const k = Math.min(1, (t - t0) / MIN);
-      // ease with a couple of "hitches" so it feels like real work
-      const eased = k < 0.35 ? k * 1.4 : k < 0.6 ? 0.49 + (k - 0.35) * 0.6 : 0.64 + (k - 0.6) * 0.9;
-      const target = assetsReady ? Math.min(1, eased) : Math.min(0.92, eased);
+      // Never hold the page: after 1.2s the hero shows even if the 3D scene is still warming up.
+      const target = assetsReady || t - t0 > 1200 ? k : Math.min(0.9, k);
       setPct(target);
-      if (target >= 1) {
-        if (!done.current) {
-          done.current = true;
-          setTimeout(() => setLeaving(true), 250);
-          setTimeout(() => onDone(), 650);
-          setTimeout(() => setGone(true), 1500);
-        }
-        return;
-      }
+      if (target >= 1) return finish();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      removeEventListener('pointerdown', skip);
+      removeEventListener('keydown', skip);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

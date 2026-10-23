@@ -11,7 +11,8 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, dev
 await page.addInitScript((t) => localStorage.setItem('ir-theme', t), theme);
 const shot = async (name, url, fn, full = false) => {
   await page.goto(url);
-  await page.waitForTimeout(500);
+  // Let entrance animations settle so the shot is sharp.
+  await page.waitForTimeout(2500);
   if (fn) await fn();
   await page.screenshot({ path: `${out}/${name}.png`, fullPage: full });
 };

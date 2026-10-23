@@ -1,6 +1,6 @@
 import type { Claim, ClaimKind, CommandCategory, FileChange, Step } from '../types';
 import { basename, isDocFile, isTestFile, truncate } from '../util';
-import { failureHeadline, isVerify, outputLooksFailed, partialTestFilter } from './commands';
+import { failedAs, failureHeadline, isVerify, outputLooksFailed, partialTestFilter, shellBroke } from './commands';
 
 // Fact-checks what the agent said at the end of each turn against what the log shows.
 // Claims are found with patterns, not a model, so every verdict is reproducible.
@@ -16,11 +16,16 @@ const PATTERNS: Pattern[] = [
   { kind: 'build-pass', re: /\b(?:the\s+)?(?:build|compil(?:e|es|ation))\b[^.;\n]{0,40}?\b(?:pass(?:es)?|succeed(?:s|ed)?|works|clean(?:ly)?|green|successful(?:ly)?|is fine)\b|\bbuilds (?:cleanly|successfully|fine)\b|\bcompiles (?:cleanly|successfully|fine|without errors)\b/i },
   { kind: 'typecheck-pass', re: /\b(?:type-?check(?:s|ing|er)?|tsc|mypy|pyright|types?)\b[^.;\n]{0,40}?\b(?:pass(?:es)?|clean|no (?:type )?errors|succeeds?)\b/i },
   { kind: 'lint-pass', re: /\blint(?:s|ing|er)?\b[^.;\n]{0,40}?\b(?:pass(?:es)?|clean|no (?:errors|warnings|issues))\b/i },
-  { kind: 'no-test-changes', re: /\b(?:did\s*n['’]?t|did not|without|no(?:t)?)\s+(?:change|modify|touch|edit|alter)(?:ing|ed)?\s+(?:any\s+)?(?:of\s+)?(?:the\s+)?(?:existing\s+)?tests?\b|\btests? (?:are|were) (?:left )?unchanged\b/i },
+  {
+    kind: 'no-test-changes',
+    // The subject has to be the tests: "the stress test scores are unchanged" is not about test files.
+    re: /\b(?:did\s*n['’]?t|did not|without|no(?:t)?)\s+(?:change|modify|touch|edit|alter)(?:ing|ed)?\s+(?:any\s+)?(?:of\s+)?(?:the\s+)?(?:existing\s+)?tests?\b|(?:^|\b(?:the|all|all the|existing|my|our)\s+)(?:existing\s+)?tests?\s+(?:files?\s+)?(?:are|were|stay(?:ed)?|remain(?:ed)?)\s+(?:left\s+)?(?:unchanged|untouched)\b/i,
+  },
   { kind: 'only-changed', re: /\bonly\s+(?:changed|modified|touched|edited|updated)\s+(.+)$/i },
   {
     kind: 'fixed',
-    re: /\b(?:I|I['’]ve|I have|we|we['’]ve|we have)\s+(?:now\s+)?(?:fixed|resolved|solved)\b|\b(?:is|are|was|were|has been|have been|now)\s+(?:fixed|resolved)\b|^(?:Fixed|Resolved)\b(?!\s*:)|\bnow (?:works|passes|returns|handles|rounds)\b/i,
+    // "is fixed" but not "is fixed answers" / "are fixed architectures", where fixed describes a noun.
+    re: /\b(?:I|I['’]ve|I have|we|we['’]ve|we have)\s+(?:now\s+)?(?:fixed|resolved|solved)\b|\b(?:is|are|was|were|has been|have been|now)\s+(?:fixed|resolved)\b(?!\s+(?!(?:in|by|on|at|for|with|now|and|so|too|as|after|before|properly|correctly|completely|both|here|there|upstream|locally|already|again)\b)[a-z]{3,}\b)|^(?:Fixed|Resolved)\b(?!\s*:)|\bnow (?:works|passes|returns|handles|rounds)\b/i,
   },
 ];
 
@@ -47,11 +52,16 @@ export function findClaimsInText(text: string): { kind: ClaimKind; sentence: str
   for (const sentence of sentencesOf(text)) {
     if (sentence.endsWith('?') || sentence.endsWith(':')) continue;
     if (/\bbeing (fixed|resolved)\b|\b(will|to|should|can|could|would|let me|i['’]ll|going to|need to|make sure)\s+(\w+\s+){0,4}(fix|run|pass)\b/i.test(sentence)) continue;
+    // "assuming the blockers are fixed", "once it's fixed": a condition, not a claim.
+    if (/\b(?:assuming|if|until|unless)\b[^.;]{0,50}\b(?:fixed|resolved|pass(?:es)?)\b/i.test(sentence)) continue;
+    // Text in quotes is quoted, not claimed ("Now showing 12 claims: “All tests pass.” …").
+    const quoted = [...sentence.matchAll(/“[^”]*”|"[^"]*"/g)].map((q) => [q.index!, q.index! + q[0].length]);
     const kinds = new Set<ClaimKind>();
     for (const p of PATTERNS) {
       const m = sentence.match(p.re);
       if (!m) continue;
       if (kinds.has(p.kind)) continue;
+      if (quoted.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
       const cleaned = sentence.replace(/\b0\s+(failed|failing|failures|errors)\b/gi, '').replace(FAILING_NOUN, ' tests ');
       if (p.kind !== 'no-test-changes' && p.kind !== 'only-changed' && NEGATION.test(cleaned)) continue;
       if (p.kind === 'fixed' && (kinds.has('tests-pass') || kinds.has('build-pass'))) continue;
@@ -119,6 +129,15 @@ const NOUN: Partial<Record<ClaimKind, string>> = {
   'lint-pass': 'lint',
 };
 
+const E2E = /\b(playwright|cypress|webdriver|puppeteer|e2e)\b/i;
+
+/** "All unit tests pass" is about unit tests, not the last Playwright run, and the reverse. */
+function testScope(sentence: string): 'unit' | 'e2e' | null {
+  if (/\b(e2e|end-to-end|playwright|cypress|browser tests?)\b/i.test(sentence)) return 'e2e';
+  if (/\bunit\s+tests?\b/i.test(sentence)) return 'unit';
+  return null;
+}
+
 function commandFailed(s: Step): boolean {
   const c = s.command!;
   return c.failed || outputLooksFailed(c.output);
@@ -138,7 +157,16 @@ function evaluate(
   const cat = CATEGORY[kind];
   if (cat) {
     // Typecheck claims are also satisfied by a build that runs tsc, etc.
-    const runs = before.filter((s) => s.command && (s.command.categories.includes(cat) || (cat === 'typecheck' && s.command.categories.includes('build'))));
+    // A command the shell could not parse never ran, so it says nothing either way.
+    const sentence = match.input ?? '';
+    const scope = cat === 'test' ? testScope(sentence) : null;
+    const runs = before.filter(
+      (s) =>
+        s.command &&
+        !shellBroke(s.command) &&
+        (s.command.categories.includes(cat) || (cat === 'typecheck' && s.command.categories.includes('build'))) &&
+        (!scope || (scope === 'e2e') === E2E.test(s.command.cmd)),
+    );
     const noun = NOUN[kind]!;
     if (!runs.length) {
       return { verdict: 'unverified', explanation: `No ${noun} command ran before this claim.`, evidence: [] };
@@ -148,7 +176,7 @@ function evaluate(
     if (c.exitCode === null && !c.output) {
       return { verdict: 'unverified', explanation: `The last ${noun} run (step ${last.id + 1}) has no recorded result.`, evidence: [last.id] };
     }
-    if (commandFailed(last)) {
+    if (failedAs(c, cat)) {
       const head = failureHeadline(c.output);
       const masked = !c.failed ? ' Its exit code was hidden, but the output reports failures.' : '';
       return {
@@ -162,7 +190,7 @@ function evaluate(
       // The last run was a subset. What did the last full run say?
       const full = runs.filter((s) => !partialTestFilter(s.command!.cmd));
       const lastFull = full[full.length - 1];
-      if (lastFull && commandFailed(lastFull)) {
+      if (lastFull && failedAs(lastFull.command!, 'test')) {
         return {
           verdict: 'contradicted',
           explanation: `The last full test run (step ${lastFull.id + 1}) failed. After that the agent only ran ${filter} (step ${last.id + 1}), which passed.`,
@@ -190,7 +218,7 @@ function evaluate(
   }
 
   if (kind === 'fixed') {
-    const verifies = before.filter((s) => s.command && isVerify(s.command.categories) && (!lastEdit || s.id > lastEdit.id));
+    const verifies = before.filter((s) => s.command && !shellBroke(s.command) && isVerify(s.command.categories) && (!lastEdit || s.id > lastEdit.id));
     if (!verifies.length) {
       return {
         verdict: 'unverified',

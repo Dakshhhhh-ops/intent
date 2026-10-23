@@ -208,3 +208,85 @@ describe('checkClaims verdicts', () => {
     expect(claimsOf(r)).toHaveLength(1);
   });
 });
+
+describe('claim precision on real-world phrasing', () => {
+  it('does not blame a type check for a test failure in the same command', () => {
+    const r = new Run();
+    r.prompt('fix it');
+    r.read('a.py', 'x = 1');
+    r.edit('a.py', 'x = 1', 'x = 2');
+    r.cmd('ruff check . && mypy . | tail -2; pytest -q | tail -3', { output: 'All checks passed!\nSuccess: no issues found in 12 source files\nFAILED tests/test_a.py::test_x - AssertionError\n1 failed, 20 passed' });
+    r.say('Ruff and mypy are clean.');
+    const claim = claimsOf(r).find((c) => c.kind === 'typecheck-pass')!;
+    expect(claim.verdict).toBe('supported');
+  });
+
+  it('still contradicts the test claim from that same command', () => {
+    const r = new Run();
+    r.prompt('fix it');
+    r.read('a.py', 'x = 1');
+    r.edit('a.py', 'x = 1', 'x = 2');
+    r.cmd('mypy . | tail -2; pytest -q | tail -3', { output: 'Success: no issues found\nFAILED tests/test_a.py::test_x - AssertionError\n1 failed, 20 passed' });
+    r.say('All tests pass.');
+    expect(claimsOf(r).find((c) => c.kind === 'tests-pass')!.verdict).toBe('contradicted');
+  });
+
+  it.each([
+    'Now showing 12 claims: "All tests pass.", "Only changed `cart.js`.", "The build succeeds."',
+    'Scores (assuming the blockers are fixed) look good.',
+    'Everything else is fixed answers.',
+    'The synthetic scores, ablation and stress test are unchanged.',
+  ])('is not a claim: %s', (text) => {
+    expect(findClaimsInText(text)).toEqual([]);
+  });
+
+  it('still reads ordinary claims', () => {
+    expect(findClaimsInText('After the fix, all tests pass.').map((c) => c.kind)).toEqual(['tests-pass']);
+    expect(findClaimsInText('The rounding bug is fixed in cart.js.').map((c) => c.kind)).toEqual(['fixed']);
+    expect(findClaimsInText('The existing tests are unchanged.').map((c) => c.kind)).toEqual(['no-test-changes']);
+  });
+});
+
+describe('test runner summaries decide masked results', () => {
+  it('trusts "Ran 104 tests … OK" over stray error lines from other commands', () => {
+    const r = new Run();
+    r.prompt('fix it');
+    r.read('a.py', 'x = 1');
+    r.edit('a.py', 'x = 1', 'x = 2');
+    r.cmd('python tools/report.py; python -m unittest discover 2>&1 | grep -E "^(Ran|OK|FAIL)"', { output: 'AssertionError in sample 3 (expected)\nRan 104 tests in 0.3s\nOK' });
+    r.say('All 104 tests pass.');
+    expect(claimsOf(r).find((c) => c.kind === 'tests-pass')!.verdict).toBe('supported');
+  });
+
+  it('reads a Playwright run with a failure as failed even when it also prints passes', () => {
+    const r = new Run();
+    r.prompt('fix it');
+    r.read('a.ts', 'x');
+    r.edit('a.ts', 'x', 'y');
+    r.cmd('npx playwright test | tail -5', { output: '  6 passed (22.5s)\n    Error: expect(locator).toBeVisible() failed\n  1 failed' });
+    r.say('All 6 tests pass.');
+    expect(claimsOf(r).find((c) => c.kind === 'tests-pass')!.verdict).toBe('contradicted');
+  });
+
+  it('ignores a command the shell could not parse', () => {
+    const r = new Run();
+    r.prompt('fix it');
+    r.read('a.py', 'x = 1');
+    r.edit('a.py', 'x = 1', 'x = 2');
+    r.cmd('pytest -q', { output: '3 passed in 0.2s' });
+    r.cmd("pytest -q; echo 'oops", { exit: 2, output: "/usr/bin/bash: -c: line 3: unexpected EOF while looking for matching `''" });
+    r.say('All tests pass.');
+    expect(claimsOf(r).find((c) => c.kind === 'tests-pass')!.verdict).toBe('supported');
+  });
+
+  it('checks "unit tests pass" against unit test runs, not the last Playwright run', () => {
+    const r = new Run();
+    r.prompt('fix it');
+    r.read('a.ts', 'x');
+    r.edit('a.ts', 'x', 'y');
+    r.cmd('npx vitest run', { output: 'Tests  117 passed (117)' });
+    r.cmd('npx playwright test', { exit: 1, output: '1 failed\n53 passed (7.7m)' });
+    r.say('All 117 unit tests pass.');
+    expect(claimsOf(r).find((c) => c.kind === 'tests-pass')!.verdict).toBe('supported');
+  });
+});

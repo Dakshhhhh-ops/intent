@@ -147,7 +147,7 @@
 /* ------------------------------------------------------------ cinematic hero */
 .ch {
   position: relative;
-  height: 340vh;
+  height: 240vh;
 }
 
 .ch-sticky {
@@ -496,7 +496,7 @@
 
 @media (max-width: 800px) {
   .ch {
-    height: 300vh;
+    height: 220vh;
   }
 
   .ch-hud.tl,
@@ -550,4 +550,41 @@
 /* CTAs step aside while the tape unspools, return at the end */
 .ch-bottom {
   transition: opacity 0.4s, transform 0.4s;
+}
+
+/* The one-line pitch under the title: the claim check first. */
+.ch-title {
+  padding-bottom: 170px;
+}
+
+.ch-sub {
+  position: absolute;
+  left: 50%;
+  bottom: 168px;
+  z-index: 3;
+  width: min(640px, calc(100% - 40px));
+  margin: 0;
+  transform: translateX(-50%);
+  text-align: center;
+  font-size: clamp(16px, 1.35vw, 19px);
+  line-height: 1.5;
+  color: var(--text-2);
+  pointer-events: none;
+}
+
+.ch-sub q {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.2em;
+  color: var(--cream);
+}
+
+@media (max-width: 800px) {
+  .ch-title {
+    padding-bottom: 210px;
+  }
+
+  .ch-sub {
+    bottom: 150px;
+  }
 }

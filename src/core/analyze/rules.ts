@@ -2,7 +2,7 @@ import { diffArrays } from 'diff';
 import type { Claim, FileChange, Finding, RuleId, Severity, Step } from '../types';
 import { secretKinds } from '../redact';
 import { basename, isDocFile, isTestFile, oneLine, splitLines, truncate } from '../util';
-import { isVerify, masksExitCode, outputLooksFailed, shellCode } from './commands';
+import { failedAs, isVerify, masksExitCode, outputLooksFailed, shellCode } from './commands';
 
 // Deterministic review rules. Each one looks at the normalized steps and the
 // reconstructed files and returns plain-language findings linked to steps.
@@ -80,7 +80,7 @@ const weakenedTests: Rule = ({ steps, files }) => {
   let lastTestFailed = false;
   for (const s of steps) {
     if (s.command && s.command.categories.includes('test')) {
-      lastTestFailed = s.command.failed || outputLooksFailed(s.command.output);
+      lastTestFailed = failedAs(s.command, 'test');
       continue;
     }
     if (!s.edit || !isTestFile(s.edit.path) || createdHere.has(s.edit.path)) continue;
@@ -220,7 +220,7 @@ const failureLoop: Rule = ({ steps }) => {
   };
   for (const s of steps) {
     if (!s.command?.categories.includes('test')) continue;
-    if (s.command.failed || outputLooksFailed(s.command.output)) streak.push(s.id);
+    if (failedAs(s.command, 'test')) streak.push(s.id);
     else flush();
   }
   flush();
@@ -275,10 +275,10 @@ const silencedErrors: Rule = ({ steps }) => {
   const failing: Partial<Record<Exclude<CheckKind, 'any'>, string>> = {};
   for (const s of steps) {
     if (s.command && isVerify(s.command.categories)) {
-      const bad = s.command.failed || outputLooksFailed(s.command.output) ? truncate(oneLine(s.command.cmd), 60) : undefined;
-      const cats = s.command.categories;
-      if (cats.includes('typecheck') || cats.includes('build')) failing.typecheck = bad;
-      if (cats.includes('lint')) failing.lint = bad;
+      const c = s.command;
+      const label = truncate(oneLine(c.cmd), 60);
+      if (c.categories.includes('typecheck') || c.categories.includes('build')) failing.typecheck = failedAs(c, 'typecheck') || failedAs(c, 'build') ? label : undefined;
+      if (c.categories.includes('lint')) failing.lint = failedAs(c, 'lint') ? label : undefined;
       continue;
     }
     if (!s.edit || outsideProject(s.edit.path)) continue;
@@ -325,7 +325,7 @@ function lastFailingTest(steps: Step[], before: number): string | undefined {
   for (let i = before - 1; i >= 0; i--) {
     const c = steps[i].command;
     if (!c || !c.categories.includes('test')) continue;
-    return c.failed || outputLooksFailed(c.output) ? truncate(oneLine(c.cmd), 60) : undefined;
+    return failedAs(c, 'test') ? truncate(oneLine(c.cmd), 60) : undefined;
   }
   return undefined;
 }

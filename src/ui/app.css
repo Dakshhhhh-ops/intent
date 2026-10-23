@@ -369,6 +369,16 @@
   background: rgba(229, 72, 77, 0.18);
 }
 
+/* exit 0 that only passed because a pipe hid the failure */
+.ev-exit.masked {
+  color: #ffca16;
+  background: rgba(255, 197, 61, 0.14);
+}
+
+.ev-exit.masked s {
+  text-decoration-color: rgba(255, 202, 22, 0.7);
+}
+
 .ev-fail {
   color: #ff9592;
 }
@@ -920,6 +930,21 @@
 
   .rh-row {
     flex-wrap: wrap;
+  }
+
+  /* Readouts get their own row and scroll sideways, with a fade that says there is more. */
+  .rh-readouts {
+    order: 3;
+    flex-basis: 100%;
+    margin: 2px -18px 0;
+    padding: 0 18px;
+    -webkit-mask-image: linear-gradient(90deg, #000 80%, transparent);
+    mask-image: linear-gradient(90deg, #000 80%, transparent);
+  }
+
+  .rh-readouts .ro:first-child {
+    border-left: 0;
+    padding-left: 0;
   }
 }
 

@@ -1,15 +1,13 @@
 import { useMemo, useRef, useState } from 'react';
 import { analyze } from '../core/analyze';
 import { parseTrace } from '../core/parse/detect';
-import type { Analysis, Claim, Step, Trace } from '../core/types';
+import type { Analysis, Step, Trace } from '../core/types';
 import { SAMPLES } from '../samples';
 import type { CliSession } from './App';
-import { CrtSection } from './fx3d/CrtSection';
 import { SiteFooter } from './fx3d/SiteFooter';
 import { CursorFollower } from './home/Extras';
 import { CaseFiles, type CaseRow } from './home/CaseFiles';
 import { DiffVsReplay } from './home/DiffVsReplay';
-import { Gauges } from './home/Gauges';
 import { CineHero } from './home/CineHero';
 import { Preloader } from './home/Preloader';
 import { kindColor } from './RunStrip';
@@ -18,8 +16,6 @@ import { SessionPicker } from './home/SessionPicker';
 import { TerminalDemo } from './home/TerminalDemo';
 import { useHomeMotion } from './home/useHomeMotion';
 import { Icon } from './Icon';
-import { Marquee } from './oss/Elements';
-import { Rich } from './Rich';
 
 function tapeColor(s: Step): string {
   if (s.command?.failed) return 'var(--fail)';
@@ -30,17 +26,6 @@ function tapeColor(s: Step): string {
   if (s.kind === 'prompt') return 'var(--prompt)';
   return 'var(--border-strong)';
 }
-
-// Sentences the claim checker recognizes, with verdicts it can give them.
-const TICKER: [string, Claim['verdict']][] = [
-  ['All tests pass.', 'contradicted'],
-  ['Only changed `cart.js`.', 'supported'],
-  ['The build succeeds.', 'unverified'],
-  ["Didn't change any tests.", 'contradicted'],
-  ['I fixed the rounding bug.', 'supported'],
-  ['Type check passes.', 'stale'],
-  ['Lint is clean.', 'unverified'],
-];
 
 // The boot sequence plays once per page load.
 let bootPlayed = false;
@@ -136,22 +121,6 @@ export function Home({
       )}
       {hero && <CineHero trace={hero.trace} analysis={hero.analysis} ready={ready} onOpen={() => onSample(hero.id)} onPick={pick} />}
 
-      {/* ------------------------------------------------------------ claims marquee */}
-      <section className="h-claims" aria-label="Claims Intent Replay checks">
-        <Marquee duration={44}>
-          {TICKER.map(([t, v]) => (
-            <span key={t} className="big-claim">
-              <q>
-                <Rich text={t} />
-              </q>
-              <span className={`big-stamp ${v}`}>{v}</span>
-            </span>
-          ))}
-        </Marquee>
-      </section>
-
-      {hero && <CrtSection trace={hero.trace} analysis={hero.analysis} onOpen={() => onSample(hero.id)} />}
-
       <div className="h-wrap">
         {sessions && (
           <section className="h-section">
@@ -199,16 +168,6 @@ export function Home({
             <p className="h-sub">Drag the divider. On the left, the diff and summary you would normally approve. On the right, the same change as Intent Replay shows it.</p>
           </div>
           {hero && <DiffVsReplay trace={hero.trace} analysis={hero.analysis} />}
-        </section>
-
-        <section className="h-section">
-          <div className="h-head">
-            <p className="eyebrow-mono">Instrument panel</p>
-            <h2 className="h-h2" data-reveal>
-              Built to read <em>real</em> runs.
-            </h2>
-          </div>
-          <Gauges />
         </section>
 
         {/* ---------------------------------------------------------- use it */}

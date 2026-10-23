@@ -1,4 +1,5 @@
 import type { Step } from '../core/types';
+import { masksExitCode, outputLooksFailed, shellCode } from '../core/analyze/commands';
 import { stepDiff } from './DiffView';
 import { Icon, KIND_ICON } from './Icon';
 import { kindColor } from './RunStrip';
@@ -21,6 +22,14 @@ function pickLines(output: string, max: number): string[] {
   return out;
 }
 
+/** The pipe that swallowed a command's exit code (`| tail`, `|| true`), if any. */
+function maskingPipe(cmd: string): string | null {
+  if (!masksExitCode(cmd)) return null;
+  const code = shellCode(cmd);
+  const m = code.match(/\|\|\s*(true|exit 0|:)|\|\s*(head|tail|grep|tee|Select-Object|select|more|less|sort|wc)\b/i);
+  return m ? (m[1] ? `|| ${m[1]}` : `| ${m[2]}`) : 'a pipe';
+}
+
 export function Evidence({ step, onOpen }: { step: Step; onOpen: (id: number) => void }) {
   const head = (
     <button className="ev-head" onClick={() => onOpen(step.id)} title="Open this step in the replay">
@@ -38,13 +47,20 @@ export function Evidence({ step, onOpen }: { step: Step; onOpen: (id: number) =>
   if (step.command) {
     const c = step.command;
     const lines = pickLines(c.output, 5);
+    const hiddenBy = !c.failed && outputLooksFailed(c.output) ? maskingPipe(c.cmd) : null;
     return (
       <div className="ev">
         {head}
         <div className="ev-term">
           <div className="ev-cmd">
             <span>$</span> {c.cmd}
-            <span className={`ev-exit ${c.failed ? 'bad' : 'ok'}`}>exit {c.exitCode ?? '?'}</span>
+            {hiddenBy ? (
+              <span className="ev-exit masked" title="The command exited 0 only because the pipe hid the real exit code; the output shows failures.">
+                <s>exit {c.exitCode ?? 0}</s> · hidden by {hiddenBy}
+              </span>
+            ) : (
+              <span className={`ev-exit ${c.failed ? 'bad' : 'ok'}`}>exit {c.exitCode ?? '?'}</span>
+            )}
           </div>
           {lines.map((l, i) => (
             <div key={i} className={FAIL_LINE.test(l) ? 'ev-fail' : undefined}>

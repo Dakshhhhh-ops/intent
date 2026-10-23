@@ -1,4 +1,4 @@
-import type { CommandCategory } from '../types';
+import type { CommandCategory, CommandInfo } from '../types';
 
 // Classifies shell commands so claims like "tests pass" can be checked against
 // what actually ran. A command can belong to several categories
@@ -102,6 +102,71 @@ export function outputLooksFailed(output: string): boolean {
   if (!output) return false;
   const cleaned = output.replace(WARNINGS_ONLY, '').replace(PASS_ZERO, '');
   return FAIL_PATTERNS.some((re) => re.test(cleaned)) || countsShowFailure(output);
+}
+
+/** What kind of check each failure line in an output belongs to. Generic errors (npm ERR!) belong to none. */
+const FAILURE_KINDS: [CommandCategory, RegExp][] = [
+  ['test', /^\s*FAIL\b|^FAILED\b|\b[1-9]\d*\s+(failed|failing)\b|AssertionError|ERR_ASSERTION|^\s*(#|ℹ)\s*fail\s+[1-9]|\btest result: FAILED|^\s*[✗×]\s|^not ok\b|\bTests?:\s+[^\n]*\b[1-9]\d*\s+failed/im],
+  ['typecheck', /\berror TS\d+|:\s*error:.*\[[\w-]+\]\s*$|\bFound [1-9]\d* errors? in \d+ files?|\b[1-9]\d* errors?, \d+ warnings?, \d+ (informations|notes)/im],
+  ['lint', /\b\d+ problems? \([1-9]\d* errors?|\bFound [1-9]\d* errors?\.|\b[1-9]\d* errors? \(\d+ fixable/im],
+  ['build', /\bBuild failed\b|\berror during build\b|\bfailed to compile\b|\bCould not resolve\b|^ERROR in\b/im],
+];
+
+/** The kinds of check an output shows failing. Empty when the failure can't be placed. */
+export function failureKinds(output: string): Set<CommandCategory> {
+  const cleaned = output.replace(WARNINGS_ONLY, '').replace(PASS_ZERO, '');
+  const out = new Set<CommandCategory>();
+  for (const [cat, re] of FAILURE_KINDS) if (re.test(cleaned)) out.add(cat);
+  return out;
+}
+
+/**
+ * Did this command fail as a check of this kind? `npm test && npx tsc` run as one command reports one
+ * exit code; when its output shows only test failures, the type check part did not fail.
+ */
+export function failedAs(c: CommandInfo, cat: CommandCategory): boolean {
+  if (!c.failed && !outputLooksFailed(c.output)) return false;
+  // Exit 0 with failure words somewhere: the test runner's own final summary decides.
+  if (cat === 'test' && !c.failed) {
+    const summary = testSummary(c.output);
+    if (summary) return summary === 'fail';
+  }
+  const verifyCats = c.categories.filter((x) => VERIFY_CATEGORIES.includes(x));
+  if (verifyCats.length <= 1) return true;
+  const kinds = failureKinds(c.output);
+  if (!kinds.size) return true;
+  // tsc errors fail a build only when no separate type check ran in the same command.
+  return kinds.has(cat) || (cat === 'build' && kinds.has('typecheck') && !c.categories.includes('typecheck'));
+}
+
+/** The last summary line a test runner printed, read as pass or fail. Null when there is none. */
+export function testSummary(output: string): 'pass' | 'fail' | null {
+  let verdict: 'pass' | 'fail' | null = null;
+  const lines = output.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (/^Ran \d+ tests? in /.test(l)) {
+      const next = lines.slice(i + 1).find((x) => x.trim())?.trim() ?? '';
+      if (/^OK\b/.test(next)) verdict = 'pass';
+      else if (/^FAILED\b/.test(next)) verdict = 'fail';
+    } else if (/^=*\s*(?:\d+ \w+, )*\d+ (passed|failed|errors?)\b.* in [\d.]+s\b/.test(l)) {
+      verdict = /\b[1-9]\d* (failed|errors?)\b/.test(l) ? 'fail' : 'pass'; // pytest
+    } else if (/^Tests:?\s+.*\b\d+ (passed|failed)\b/.test(l)) {
+      verdict = /\b[1-9]\d* failed\b/.test(l) ? 'fail' : 'pass'; // vitest, jest
+    } else if (/^ℹ fail \d+$/.test(l) || /^# fail \d+$/.test(l)) {
+      verdict = /\s0$/.test(l) ? 'pass' : 'fail'; // node:test, TAP
+    } else if (/^[1-9]\d* failed\b/.test(l)) {
+      verdict = 'fail'; // playwright
+    } else if (/^\d+ passed \([\d.]+m?s\)$/.test(l)) {
+      verdict ??= 'pass';
+    }
+  }
+  return verdict;
+}
+
+/** The shell could not even parse the command, so nothing in it ran. */
+export function shellBroke(c: CommandInfo): boolean {
+  return /^(?:\/\S+\/)?(?:ba|z)?sh: .*(?:unexpected EOF while looking for matching|syntax error near unexpected token|syntax error: unexpected end of file)/m.test(c.output);
 }
 
 /** A test command that only runs some tests (name filter, .only, a single file). */

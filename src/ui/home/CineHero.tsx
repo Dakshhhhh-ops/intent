@@ -50,22 +50,27 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
   }, [trace, analysis]);
 
   // scene
+  // Starts once the title and buttons are on screen: the 3D scene is decoration, never a gate.
   useEffect(() => {
+    if (!ready) return;
     let dispose: (() => void) | undefined;
     let cancelled = false;
     const tape = trace.steps.map((s: Step) => ({ color: HEX[kindColor(s)] ?? '#3a3d44', bad: !!s.command?.failed }));
-    import('../fx3d/cine').then(({ startCine }) => {
-      if (cancelled || !stage.current) return;
-      const anchors = (): Anchor[] => pins.map((pin, i) => ({ step: pin.step, el: pinEls.current[i]! })).filter((a) => a.el);
-      const r = startCine(stage.current, tape, state.current, anchors);
-      if (!r) stage.current.classList.add('no-webgl');
-      dispose = r?.dispose;
-    });
+    const timer = window.setTimeout(() => {
+      import('../fx3d/cine').then(({ startCine }) => {
+        if (cancelled || !stage.current) return;
+        const anchors = (): Anchor[] => pins.map((pin, i) => ({ step: pin.step, el: pinEls.current[i]! })).filter((a) => a.el);
+        const r = startCine(stage.current, tape, state.current, anchors);
+        if (!r) stage.current.classList.add('no-webgl');
+        dispose = r?.dispose;
+      });
+    }, 150);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       dispose?.();
     };
-  }, [trace, pins]);
+  }, [trace, pins, ready]);
 
   // entrance, after the loader
   useEffect(() => {
@@ -75,10 +80,10 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
       state.current.intro = 1;
       return;
     }
-    const tw = gsap.to(state.current, { intro: 1, duration: 2.2, ease: 'power3.out', delay: 0.15 });
+    const tw = gsap.to(state.current, { intro: 1, duration: 1.8, ease: 'power3.out', delay: 0.05 });
     const lines = title.current?.querySelectorAll('.ch-word');
     if (lines) gsap.fromTo(lines, { yPercent: 115, rotate: 4 }, { yPercent: 0, rotate: 0, duration: 1.3, ease: 'expo.out', stagger: 0.06 });
-    gsap.fromTo('.ch-reveal', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 1, ease: 'power3.out', stagger: 0.08, delay: 0.6 });
+    gsap.fromTo('.ch-reveal', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 1, ease: 'power3.out', stagger: 0.06, delay: 0.2 });
     return () => {
       tw.kill();
     };
@@ -137,6 +142,9 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
             </span>
           </span>
         </h1>
+        <p className="ch-sub ch-reveal" style={{ opacity: 1 - titleOut }}>
+          Your coding agent says <q>all tests pass</q>. Intent Replay checks that against what actually ran, and shows the step that proves it.
+        </p>
 
         <div className="ch-stage" ref={stage} aria-hidden="true" />
 

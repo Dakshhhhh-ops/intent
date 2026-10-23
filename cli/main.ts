@@ -33,6 +33,7 @@ ${bold('Usage')}
   intent-replay report <target>      print a PR-ready Markdown report   [--out file] [--json]
   intent-replay check <target>       exit 1 if findings at/above a level [--fail-on high|medium|low]
   intent-replay export <target>      write a self-contained HTML replay  [-o replay.html]
+  intent-replay audit                fact-check every local session at once, counts only [--json]
 
 ${bold('Target')}  a number from ${cyan('list')}, ${cyan('latest')}, or a path to a .jsonl / .json file
 
@@ -65,7 +66,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '-v') flags.version = true;
     else pos.push(a);
   }
-  const known = ['list', 'open', 'watch', 'report', 'check', 'export', 'help'];
+  const known = ['list', 'open', 'watch', 'report', 'check', 'export', 'audit', 'help'];
   if (pos[0] && !known.includes(pos[0])) return { cmd: 'open', target: pos[0], flags };
   return { cmd: pos[0] ?? 'picker', target: pos[1], flags };
 }
@@ -159,6 +160,63 @@ function printSummary(path: string) {
   }
 }
 
+/** Every local session at once: how often did an agent claim something its own log contradicts? Counts only. */
+function audit(json: boolean) {
+  const list = listSessions();
+  if (!list.length) fail('No Claude Code or Codex sessions found in ~/.claude/projects or ~/.codex/sessions.');
+  const t0 = Date.now();
+  const verdicts: Record<string, number> = { supported: 0, contradicted: 0, stale: 0, unverified: 0 };
+  const rules: Record<string, number> = {};
+  const caught: { id: string; title: string; n: number }[] = [];
+  let withClaims = 0;
+  let risky = 0;
+  let failed = 0;
+  list.forEach((s, i) => {
+    if (!json) process.stderr.write(`\r${dim(`Checking ${i + 1}/${list.length}…`)}`);
+    try {
+      const { analysis: a } = load(s.path);
+      if (a.claims.length) withClaims++;
+      for (const c of a.claims) verdicts[c.verdict]++;
+      const n = a.claims.filter((c) => c.verdict === 'contradicted').length;
+      if (n) caught.push({ id: s.id, title: s.title, n });
+      if (a.findings.some((f) => f.severity === 'high')) risky++;
+      for (const f of a.findings) if (f.severity === 'high') rules[f.rule] = (rules[f.rule] ?? 0) + 1;
+    } catch {
+      failed++;
+    }
+  });
+  const claims = Object.values(verdicts).reduce((x, y) => x + y, 0);
+  const result = {
+    sessions: list.length,
+    claudeCode: list.filter((s) => s.agent === 'claude-code').length,
+    codex: list.filter((s) => s.agent === 'codex').length,
+    unreadable: failed,
+    sessionsWithClaims: withClaims,
+    claims,
+    verdicts,
+    sessionsWithContradictedClaim: caught.length,
+    sessionsWithHighFinding: risky,
+    highFindingsByRule: rules,
+    seconds: Math.round((Date.now() - t0) / 100) / 10,
+  };
+  if (json) return console.log(JSON.stringify(result, null, 2));
+  process.stderr.write('\r' + ' '.repeat(30) + '\r');
+  const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '0%');
+  console.log(`${bold(`Audited ${list.length} sessions`)} ${dim(`(${result.claudeCode} Claude Code, ${result.codex} Codex) in ${result.seconds}s · nothing leaves this machine`)}`);
+  console.log(`  ${withClaims} ended with checkable claims ${dim('(tests pass, build passes, fixed, only changed X…)')}, ${claims} claims in all`);
+  console.log(`  ${red('✗')} ${bold(String(verdicts.contradicted))} contradicted by the agent's own log, in ${bold(String(caught.length))} sessions ${dim(`(${pct(caught.length, withClaims)} of sessions with claims)`)}`);
+  console.log(`  ${yellow('~')} ${verdicts.stale} stale, ${verdicts.unverified} never verified   ${green('✓')} ${verdicts.supported} supported`);
+  console.log(`  ${red('■')} ${risky} sessions with a high-severity finding`);
+  const top = Object.entries(rules).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (top.length) console.log(dim(`    ${top.map(([r, n]) => `${RULE_INFO[r as keyof typeof RULE_INFO].name.toLowerCase()} ${n}`).join(' · ')}`));
+  if (caught.length) {
+    console.log(`\n${bold('Where the log disagrees')}`);
+    for (const c of caught.slice(0, 10)) console.log(`  ${dim(c.id.padStart(3))}  ${red(`${c.n}×`)} ${c.title.slice(0, 70)}`);
+    console.log(dim(`\n  Open one: intent-replay open <number> --all`));
+  }
+  if (failed) console.log(dim(`  ${failed} sessions could not be read.`));
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const { flags } = args;
@@ -210,6 +268,8 @@ async function main() {
       console.log(`\n${green('✓')} No findings at or above "${level}".`);
       return;
     }
+    case 'audit':
+      return audit(!!flags.json);
     case 'export': {
       const t = resolveTarget(args.target, !!flags.all);
       const { trace } = load(t.path);

@@ -4,6 +4,7 @@ import { parseIntentTrace } from '../core/parse/intentTrace';
 import { SAMPLES } from '../samples';
 import { Brief } from './Brief';
 import { Changes } from './Changes';
+import { Compare } from './Compare';
 import { Findings } from './Findings';
 import { Header } from './Header';
 import { Home } from './Home';
@@ -51,6 +52,7 @@ export function App() {
   const [help, setHelp] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [compare, setCompare] = useState<[RunData, RunData] | null>(null);
   const toastTimer = useRef<number>(0);
   const boot = window.__INTENT_BOOT__;
   // The CLI session being shown, so it can be followed while the agent keeps working.
@@ -110,6 +112,24 @@ export function App() {
     [open],
   );
 
+  const openCompare = useCallback((ids: string[]) => {
+    const picked = ids.map((id) => SAMPLES.find((s) => s.id === id)).filter(Boolean);
+    if (picked.length !== 2) return;
+    try {
+      const runs = picked.map((s) => buildRun(parseTrace(s!.text, s!.id), { kind: 'sample', name: s!.title, sampleId: s!.id })) as [RunData, RunData];
+      setCompare(runs);
+      setRun(null);
+      const u = new URL(location.href);
+      u.searchParams.delete('sample');
+      u.searchParams.set('compare', ids.join(','));
+      u.hash = '';
+      history.replaceState(null, '', u.toString());
+      window.scrollTo(0, 0);
+    } catch (e) {
+      setError(`Couldn't compare: ${(e as Error).message}`);
+    }
+  }, []);
+
   const openSession = useCallback(
     (s: CliSession) => {
       setLoading(`Loading ${s.title.slice(0, 60)}…`);
@@ -143,8 +163,10 @@ export function App() {
       if (boot.session) openSession({ id: boot.session, key: boot.session, agent: 'claude-code', title: 'session', mtime: 0, size: 0 });
       return;
     }
-    const sample = new URL(location.href).searchParams.get('sample');
-    if (sample) openSample(sample);
+    const params = new URL(location.href).searchParams;
+    const cmp = params.get('compare');
+    if (cmp) openCompare(cmp.split(','));
+    else if (params.get('sample')) openSample(params.get('sample')!);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -219,9 +241,15 @@ export function App() {
     [tab, step, file, line, run, toast],
   );
 
-  // Global keyboard shortcuts.
+  // Global keyboard shortcuts. One listener for the app's lifetime (re-attaching it on every
+  // step change left gaps where fast keypresses were dropped); it reads current state from refs.
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const run = runRef.current;
+      const step = stepRef.current;
+      const tab = tabRef.current;
       const target = e.target as HTMLElement;
       if (target.closest('input, textarea, select, [contenteditable]')) {
         if (e.key === 'Escape') target.blur();
@@ -296,7 +324,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [run, step, tab]);
+  }, []);
 
   // Drop a file anywhere.
   useEffect(() => {
@@ -332,9 +360,11 @@ export function App() {
 
   const goHome = () => {
     setRun(null);
+    setCompare(null);
     setError(null);
     const u = new URL(location.href);
     u.searchParams.delete('sample');
+    u.searchParams.delete('compare');
     u.hash = '';
     history.replaceState(null, '', u.toString());
   };
@@ -358,13 +388,23 @@ export function App() {
         <>
           <Header onHome={goHome} onHelp={() => setHelp(true)} />
           <main className="main" id="main">
-            {loading ? (
+            {compare && !loading ? (
+              <Compare
+                runs={compare}
+                onBack={goHome}
+                onOpen={(i) => {
+                  const r = compare[i];
+                  setCompare(null);
+                  if (r.source.sampleId) openSample(r.source.sampleId);
+                }}
+              />
+            ) : loading ? (
               <div className="loading" role="status">
                 <div className="spinner" />
                 <div>{loading}</div>
               </div>
             ) : (
-              <Home onFile={openFile} onSample={openSample} onSession={openSession} sessions={sessions} cwd={boot?.cwd} error={error} />
+              <Home onFile={openFile} onSample={openSample} onCompare={openCompare} onSession={openSession} sessions={sessions} cwd={boot?.cwd} error={error} />
             )}
           </main>
         </>

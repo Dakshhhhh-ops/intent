@@ -80,3 +80,13 @@ test('CLI export and in-app download both produce a working offline replay', asy
   await expect(page.locator('.verdict-pill').first()).toContainText('Looks clean');
   expect(errors).toEqual([]);
 });
+
+test('compare two agents on the same task', async ({ page }) => {
+  await page.goto(app);
+  await page.getByText('Compare two agents on the same bug').click();
+  await expect(page.getByRole('heading', { name: 'Same task, two runs' })).toBeVisible();
+  await expect(page.locator('.cmp-head .chip')).toHaveText(['Claude Code', 'Codex CLI']);
+  await expect(page.locator('.panel-head h2', { hasText: 'src/csv.js' })).toBeVisible();
+  await page.getByRole('button', { name: /Open this run/ }).nth(1).click();
+  await expect(page.locator('.runhead')).toContainText('Codex CLI');
+});

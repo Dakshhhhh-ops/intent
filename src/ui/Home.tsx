@@ -27,6 +27,7 @@ function ago(ms: number): string {
 export function Home({
   onFile,
   onSample,
+  onCompare,
   onSession,
   sessions,
   cwd,
@@ -34,6 +35,7 @@ export function Home({
 }: {
   onFile: (f: File) => void;
   onSample: (id: string) => void;
+  onCompare: (ids: string[]) => void;
   onSession: (s: CliSession) => void;
   sessions: CliSession[] | null;
   cwd?: string;
@@ -200,6 +202,16 @@ export function Home({
               </button>
             ))}
           </div>
+          {cards.some((c) => c.id === 'csv-quotes-claude') && cards.some((c) => c.id === 'csv-quotes-codex') && (
+            <button className="compare-card" onClick={() => onCompare(['csv-quotes-claude', 'csv-quotes-codex'])}>
+              <span className="vs">VS</span>
+              <span style={{ flex: 1 }}>
+                <h3>Compare two agents on the same bug</h3>
+                <p>Claude Code and Codex CLI were given the identical task. See how each explored, changed, verified and reported, side by side.</p>
+              </span>
+              <Icon name="next" />
+            </button>
+          )}
         </>
       )}
 

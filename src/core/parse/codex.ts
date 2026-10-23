@@ -177,6 +177,20 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
       gitBranch ??= p.git?.branch;
       continue;
     }
+    if (o.type === 'token_usage_record' || (o.type === 'event_msg' && p.type === 'token_count' && p.info?.last_token_usage)) {
+      // Per-response token usage; attach it to the latest step.
+      const u: Json = o.type === 'token_usage_record' ? p.usage ?? {} : p.info.last_token_usage;
+      const last = steps[steps.length - 1];
+      if (last && (o.type === 'token_usage_record' || !records.some((r) => r.type === 'token_usage_record'))) {
+        const cached = Number(u.cached_input_tokens ?? 0);
+        last.usage = {
+          input: (last.usage?.input ?? 0) + Math.max(0, Number(u.input_tokens ?? 0) - cached),
+          output: (last.usage?.output ?? 0) + Number(u.output_tokens ?? 0),
+          cached: (last.usage?.cached ?? 0) + cached,
+        };
+      }
+      continue;
+    }
     if (o.type === 'turn_context') {
       cwd ??= p.cwd;
       model ??= p.model;

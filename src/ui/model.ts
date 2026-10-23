@@ -145,5 +145,5 @@ export function fmtTokens(n: number): string {
 export function agentName(trace: Trace): string {
   if (trace.source === 'claude-code') return 'Claude Code';
   if (trace.source === 'codex') return 'Codex CLI';
-  return trace.agentVersion?.split(' ')[0] ?? 'Agent';
+  return trace.agentVersion ? trace.agentVersion.replace(/\s+v?\d[\w.+-]*$/, '') : 'Agent';
 }

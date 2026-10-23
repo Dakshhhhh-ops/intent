@@ -89,7 +89,7 @@ export function trackFiles(steps: Step[]): FileTracking {
     f.hunks.push({ type: 'hunk', text: `${s.title}`, step: s.id });
     if (e.patch) {
       for (const l of e.patch.split('\n')) {
-        if (l.startsWith('@@')) continue;
+        if (l.startsWith('@@') || l.startsWith('+++') || l.startsWith('---')) continue;
         if (l.startsWith('+')) f.hunks.push({ type: 'add', text: l.slice(1), step: s.id });
         else if (l.startsWith('-')) f.hunks.push({ type: 'del', text: l.slice(1), step: s.id });
         else f.hunks.push({ type: 'ctx', text: l.startsWith(' ') ? l.slice(1) : l, step: null });

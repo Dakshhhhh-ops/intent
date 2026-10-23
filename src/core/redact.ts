@@ -20,7 +20,7 @@ const PATTERNS: Pattern[] = [
   { kind: 'jwt', re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
   {
     kind: 'password',
-    re: /\b((?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*["']?)([^\s"'`,;]{8,})/gi,
+    re: /(?<![«\w])((?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*["']?)([^\s"'`,;]{8,})/gi,
     group: 2,
   },
 ];

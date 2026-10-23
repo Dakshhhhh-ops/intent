@@ -1,7 +1,7 @@
 import type { EditInfo, Step, Trace } from '../types';
 import { classifyCommand, shellReadTarget, shellReadTargets, shellWriteTargets } from '../analyze/commands';
 import { redact } from '../redact';
-import { countPatch, hash, oneLine, parseTime, relPath, stripAnsi, truncate } from '../util';
+import { countLines, countPatch, hash, oneLine, parseTime, relPath, stripAnsi, truncate } from '../util';
 
 // Codex CLI writes ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl.
 // Two generations exist in the wild:
@@ -120,13 +120,20 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
     if (target && !failed) s.read = { path: rel(String(target)), full: true, viaShell: true };
     return s;
   };
-  const fileChange = (t: number | null, path: string, kind: string, diff: string, movePath?: string | null) => {
+  const fileChange = (t: number | null, path: string, kind: string, diff: string, movePath?: string | null, raw?: string) => {
     const p = rel(path);
     const op: EditInfo['op'] = kind === 'add' ? 'create' : kind === 'delete' ? 'delete' : 'update';
-    const patch = redact(diff ?? '');
-    const c = countPatch(patch);
-    const edit: EditInfo = { path: p, op, patch, added: c.added, removed: c.removed };
-    if (op === 'create') edit.after = patch.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).map((l) => l.slice(1)).join('\n');
+    let edit: EditInfo;
+    if (raw !== undefined && op !== 'update') {
+      // Newer Codex logs give added/deleted files as plain content, not a diff.
+      const content = redact(raw);
+      edit = op === 'create' ? { path: p, op, after: content, added: countLines(content), removed: 0 } : { path: p, op, before: content, added: 0, removed: countLines(content) };
+    } else {
+      const patch = redact(diff ?? '');
+      const c = countPatch(patch);
+      edit = { path: p, op, patch, added: c.added, removed: c.removed };
+      if (op === 'create') edit.after = patch.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).map((l) => l.slice(1)).join('\n');
+    }
     const stepKind = op === 'create' ? 'create' : op === 'delete' ? 'delete' : 'edit';
     const verb = op === 'create' ? 'Create' : op === 'delete' ? 'Delete' : 'Edit';
     push({
@@ -182,7 +189,8 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
           const changes: Json = it.changes ?? {};
           for (const [path, ch] of Object.entries(changes)) {
             const c = ch as Json;
-            fileChange(t, path, String(c.type ?? 'update'), String(c.unified_diff ?? c.content ?? ''), c.move_path);
+            const raw = typeof c.content === 'string' && typeof c.unified_diff !== 'string' ? c.content : undefined;
+            fileChange(t, path, String(c.type ?? 'update'), String(c.unified_diff ?? ''), c.move_path, raw);
           }
           break;
         }

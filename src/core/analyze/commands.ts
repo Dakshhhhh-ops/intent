@@ -64,21 +64,41 @@ const FAIL_PATTERNS: RegExp[] = [
   /\b([1-9]\d*)\s+(failed|failing|failures?|errors?)\b/i,
   /^\s*FAIL\b/m,
   /\bTests?:\s+[^\n]*\b[1-9]\d*\s+failed/i,
-  /\b(npm ERR!|ERR_PNPM_|error TS\d+|SyntaxError|AssertionError|Traceback \(most recent call last\))/,
+  /\b(npm ERR!|ERR_PNPM_|error TS\d+|SyntaxError|AssertionError|ERR_ASSERTION|Traceback \(most recent call last\))/,
   /^FAILED\b/m,
   /\btest result: FAILED\b/,
   /\bBuild failed\b/i,
-  /^\s*✗|^\s*×\s/m,
-  /# fail\s+[1-9]/,
+  /^\s*[✗×✖]\s/m,
+  /^\s*(#|ℹ)\s*fail\s+[1-9]/m,
 ];
 
 const PASS_ZERO = /\b0\s+(failed|failing|failures|errors)\b/gi;
+
+/** "tests 6 … pass 4" (node:test / TAP) — fewer passes than tests means something failed or was hidden. */
+function countsShowFailure(output: string): boolean {
+  const total = output.match(/^\s*(?:#|ℹ)\s*tests\s+(\d+)/m);
+  const pass = output.match(/^\s*(?:#|ℹ)\s*pass\s+(\d+)/m);
+  const skipped = output.match(/^\s*(?:#|ℹ)\s*(?:skipped|todo)\s+(\d+)/gm);
+  if (!total || !pass) return false;
+  const skip = (skipped ?? []).reduce((n, l) => n + Number(l.match(/(\d+)/)![1]), 0);
+  return Number(pass[1]) + skip < Number(total[1]);
+}
 
 /** True when a command's output clearly reports failure even if the exit code was masked. */
 export function outputLooksFailed(output: string): boolean {
   if (!output) return false;
   const cleaned = output.replace(PASS_ZERO, '');
-  return FAIL_PATTERNS.some((re) => re.test(cleaned));
+  return FAIL_PATTERNS.some((re) => re.test(cleaned)) || countsShowFailure(output);
+}
+
+/** A test command that only runs some tests (name filter, .only, a single file). */
+export function partialTestFilter(cmd: string): string | null {
+  const name = cmd.match(/--test-name-pattern[= ]["']?([^"'\s]+(?:\s[^"'-][^"']*)?)["']?|--testNamePattern[= ]["']?([^"']+)["']?|\s-t\s+["']([^"']+)["']|\s--grep\s+["']?([^"'\s]+)|\s-k\s+["']?([^"'\s]+)|::(\w+)/);
+  if (name) return `tests matching “${(name.slice(1).find(Boolean) ?? '').trim().replace(/\\(.)/g, '$1')}”`;
+  if (/--test-only\b|\.only\b/.test(cmd)) return 'tests marked .only';
+  const file = cmd.match(/\b(?:vitest(?:\s+run)?|jest|pytest|node\s+--test|mocha|go\s+test)\s+(?:-[\w-]+\s+)*([\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?|[\w./-]*test_\w+\.py|[\w./-]+_test\.go|[\w./-]+\.test\.\w+)\b/);
+  if (file) return `only ${file[1]}`;
+  return null;
 }
 
 /** Exit code was hidden by a pipe or `|| true`. */

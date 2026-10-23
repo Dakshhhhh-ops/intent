@@ -23,6 +23,16 @@ const stepRef = (id: number) => `step ${id + 1}`;
 export function lineDelta(s: Step): { added: string[]; removed: string[] } {
   const e = s.edit;
   if (!e) return { added: [], removed: [] };
+  if (e.patch) {
+    const added: string[] = [];
+    const removed: string[] = [];
+    for (const l of e.patch.split('\n')) {
+      if (l.startsWith('+++') || l.startsWith('---')) continue;
+      if (l.startsWith('+')) added.push(l.slice(1));
+      else if (l.startsWith('-')) removed.push(l.slice(1));
+    }
+    return { added, removed };
+  }
   if (e.edits?.length) {
     const added: string[] = [];
     const removed: string[] = [];
@@ -33,16 +43,6 @@ export function lineDelta(s: Step): { added: string[]; removed: string[] } {
         if (ch.added) added.push(...ch.value);
         else if (ch.removed) removed.push(...ch.value);
       }
-    }
-    return { added, removed };
-  }
-  if (e.patch) {
-    const added: string[] = [];
-    const removed: string[] = [];
-    for (const l of e.patch.split('\n')) {
-      if (l.startsWith('+++') || l.startsWith('---')) continue;
-      if (l.startsWith('+')) added.push(l.slice(1));
-      else if (l.startsWith('-')) removed.push(l.slice(1));
     }
     return { added, removed };
   }
@@ -400,11 +400,15 @@ const newDependency: Rule = ({ steps }) => {
     if (s.command?.categories.includes('install') && !s.command.failed) {
       const m = s.command.cmd.match(/\b(?:npm|pnpm|bun)\s+(?:install|i|add)\s+(.+)|\byarn add\s+(.+)|\bpip3?\s+install\s+(.+)|\buv add\s+(.+)|\bcargo add\s+(.+)|\bpoetry add\s+(.+)/);
       const list = m ? (m.slice(1).find(Boolean) ?? '') : '';
-      for (const tok of list.split(/\s+/)) {
-        if (!tok || tok.startsWith('-') || /^[&|;]/.test(tok)) {
-          if (/^[&|;]/.test(tok)) break;
+      const toks = list.split(/\s+/);
+      for (let i = 0; i < toks.length; i++) {
+        const tok = toks[i];
+        if (/^[&|;]/.test(tok)) break;
+        if (/^(-r|-e|-c|--requirement|--editable|--constraint|--index-url|-i|--prefix|--registry|--save-prefix)$/.test(tok)) {
+          i++;
           continue;
         }
+        if (!tok || tok.startsWith('-') || /^[./~]|[\/]|\.(txt|toml|cfg|lock|json)$/.test(tok)) continue;
         const name = tok.replace(/@[\^~]?[\d.x*]+.*$/, '').replace(/[<>=~!].*$/, '');
         if (name) added.set(name, [...(added.get(name) ?? []), s.id]);
       }
@@ -438,7 +442,7 @@ const churn: Rule = ({ files }) => {
         steps: f.edits,
         files: [f.path],
       });
-    } else if (f.edits.length >= 6) {
+    } else if (f.edits.length >= 5) {
       out.push({
         rule: 'churn',
         severity: 'low',

@@ -1,5 +1,5 @@
 import type { Phase, PhaseKind, Step } from '../types';
-import { isVerify } from './commands';
+import { isVerify, outputLooksFailed } from './commands';
 
 // Splits a run into chapters: Ask → Explore → Change → Verify → Repair → Report.
 // Messages take the phase of the action they introduce (they are its intent),
@@ -25,7 +25,7 @@ export function labelSteps(steps: Step[]): PhaseKind[] {
     }
     if (s.command && isVerify(s.command.categories)) {
       labels[i] = 'verify';
-      lastVerifyFailed = s.command.failed;
+      lastVerifyFailed = s.command.failed || outputLooksFailed(s.command.output);
       return;
     }
     if (s.kind === 'message' || s.kind === 'thinking') {
@@ -79,7 +79,7 @@ function summarize(steps: Step[], kind: PhaseKind): string {
   const added = steps.reduce((n, s) => n + (s.edit?.added ?? 0), 0);
   const removed = steps.reduce((n, s) => n + (s.edit?.removed ?? 0), 0);
   const cmds = steps.filter((s) => s.command && s.kind === 'command');
-  const failed = cmds.filter((s) => s.command!.failed).length;
+  const failed = cmds.filter((s) => s.command!.failed || outputLooksFailed(s.command!.output)).length;
   const parts: string[] = [];
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 

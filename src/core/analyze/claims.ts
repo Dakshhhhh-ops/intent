@@ -1,6 +1,6 @@
 import type { Claim, ClaimKind, CommandCategory, FileChange, Step } from '../types';
 import { basename, isDocFile, isTestFile, truncate } from '../util';
-import { failureHeadline, isVerify, outputLooksFailed } from './commands';
+import { failureHeadline, isVerify, outputLooksFailed, partialTestFilter } from './commands';
 
 // Fact-checks what the agent said at the end of each turn against what the log shows.
 // Claims are found with patterns, not a model, so every verdict is reproducible.
@@ -24,7 +24,9 @@ const PATTERNS: Pattern[] = [
   },
 ];
 
-const NEGATION = /\b(?:not|n['’]t|unable|cannot|couldn['’]t|still fail(?:s|ing)?|fail(?:ed|s|ing)?|broken|except)\b/i;
+const NEGATION = /(?:\b(?:not|unable|cannot|still fail(?:s|ing)?|fail(?:ed|s|ing)?|broken|except)\b|n['’]t\b)/i;
+// Noun phrases like "the previously failing tests" describe what was fixed, not a failure.
+const FAILING_NOUN = /\b(?:(?:previously|formerly|originally|the|a|two|three|\d+|all)\s+)?(?:failing|broken|flaky)\s+(?:tests?|specs?|cases?|checks?|builds?)\b/gi;
 
 export function sentencesOf(text: string): string[] {
   const noCode = text.replace(/```[\s\S]*?```/g, ' ');
@@ -44,15 +46,16 @@ export function findClaimsInText(text: string): { kind: ClaimKind; sentence: str
   const found: { kind: ClaimKind; sentence: string; match: RegExpMatchArray }[] = [];
   for (const sentence of sentencesOf(text)) {
     if (sentence.endsWith('?') || sentence.endsWith(':')) continue;
-    if (/\bbeing (fixed|resolved)\b|\b(will|to|should|can|could|would|let me|i['’]ll|going to)\s+(\w+\s+)?(fix|run|pass)\b/i.test(sentence)) continue;
+    if (/\bbeing (fixed|resolved)\b|\b(will|to|should|can|could|would|let me|i['’]ll|going to|need to|make sure)\s+(\w+\s+){0,4}(fix|run|pass)\b/i.test(sentence)) continue;
     const kinds = new Set<ClaimKind>();
     for (const p of PATTERNS) {
       const m = sentence.match(p.re);
       if (!m) continue;
       if (kinds.has(p.kind)) continue;
-      const cleaned = sentence.replace(/\b0\s+(failed|failing|failures|errors)\b/gi, '');
+      const cleaned = sentence.replace(/\b0\s+(failed|failing|failures|errors)\b/gi, '').replace(FAILING_NOUN, ' tests ');
       if (p.kind !== 'no-test-changes' && p.kind !== 'only-changed' && NEGATION.test(cleaned)) continue;
       if (p.kind === 'fixed' && (kinds.has('tests-pass') || kinds.has('build-pass'))) continue;
+      if (p.kind === 'only-changed' && !extractFileRefs(m[1] ?? '').length) continue;
       kinds.add(p.kind);
       found.push({ kind: p.kind, sentence, match: m });
     }
@@ -154,6 +157,24 @@ function evaluate(
         evidence: [last.id],
       };
     }
+    const filter = cat === 'test' ? partialTestFilter(c.cmd) : null;
+    if (filter) {
+      // The last run was a subset. What did the last full run say?
+      const full = runs.filter((s) => !partialTestFilter(s.command!.cmd));
+      const lastFull = full[full.length - 1];
+      if (lastFull && commandFailed(lastFull)) {
+        return {
+          verdict: 'contradicted',
+          explanation: `The last full test run (step ${lastFull.id + 1}) failed. After that the agent only ran ${filter} (step ${last.id + 1}), which passed.`,
+          evidence: [lastFull.id, last.id],
+        };
+      }
+      return {
+        verdict: 'unverified',
+        explanation: `The last test run (step ${last.id + 1}) only ran ${filter}, not the whole suite.`,
+        evidence: [last.id],
+      };
+    }
     if (lastEdit && lastEdit.id > last.id) {
       return {
         verdict: 'stale',
@@ -182,6 +203,19 @@ function evaluate(
     const last = verifies[verifies.length - 1];
     if (commandFailed(last)) {
       return { verdict: 'contradicted', explanation: `The last check after the change (step ${last.id + 1}) failed.`, evidence: [last.id] };
+    }
+    const filter = last.command!.categories.includes('test') ? partialTestFilter(last.command!.cmd) : null;
+    if (filter) {
+      const fullRuns = before.filter((s) => s.command?.categories.includes('test') && !partialTestFilter(s.command.cmd));
+      const lastFull = fullRuns[fullRuns.length - 1];
+      if (lastFull && commandFailed(lastFull)) {
+        return {
+          verdict: 'contradicted',
+          explanation: `The full test suite last failed at step ${lastFull.id + 1}; the only check after the change ran ${filter}.`,
+          evidence: [lastFull.id, last.id],
+        };
+      }
+      return { verdict: 'unverified', explanation: `The only check after the change ran ${filter}.`, evidence: [last.id] };
     }
     return { verdict: 'supported', explanation: `Step ${last.id + 1} checked the change and passed.`, evidence: [last.id] };
   }

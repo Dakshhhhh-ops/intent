@@ -3,22 +3,24 @@
 
 type Verdict = 'supported' | 'contradicted' | 'stale' | 'unverified';
 
+// Every line here is a sentence the claim checker recognizes (src/core/analyze/claims.ts),
+// so anyone who types one into a run summary sees it checked for real.
 const ROW_A: [string, Verdict][] = [
   ['All tests pass.', 'contradicted'],
-  ['Only changed cart.js.', 'supported'],
+  ['Only changed `cart.js`.', 'supported'],
   ['The build succeeds.', 'unverified'],
-  ["Didn't touch the tests.", 'contradicted'],
-  ['Fixed the rounding bug.', 'supported'],
-  ['Tests pass after the fix.', 'stale'],
+  ["Didn't change any tests.", 'contradicted'],
+  ['I fixed the rounding bug.', 'supported'],
+  ['Tests are green.', 'stale'],
 ];
 
 const ROW_B: [string, Verdict][] = [
-  ['No new dependencies.', 'supported'],
+  ['Type check passes.', 'supported'],
   ['Lint is clean.', 'unverified'],
-  ['Ran the full test suite.', 'contradicted'],
-  ['Only one file changed.', 'supported'],
-  ['Verified the change works.', 'stale'],
-  ['Everything is green.', 'contradicted'],
+  ['All 6 tests pass.', 'contradicted'],
+  ['Only changed `src/cart.js`.', 'supported'],
+  ['All 12 tests pass.', 'stale'],
+  ["Didn't touch the tests.", 'contradicted'],
 ];
 
 const LABEL: Record<Verdict, string> = {
@@ -36,7 +38,9 @@ function Row({ items, reverse }: { items: [string, Verdict][]; reverse?: boolean
       <div className="fx-ticker-track">
         {all.map(([text, v], i) => (
           <span className="fx-ticker-item" key={i}>
-            <q>{text}</q>
+            <q>
+              {text.split('`').map((part, j) => (j % 2 ? <code key={j}>{part}</code> : part))}
+            </q>
             <span className={`fx-tstamp ${v}`}>{LABEL[v]}</span>
           </span>
         ))}

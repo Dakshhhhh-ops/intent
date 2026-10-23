@@ -14,11 +14,15 @@ When Claude Code or Codex finishes a task, you get a diff and a cheerful summary
 - **Blame, but for intent.** Click any changed line to see the step that wrote it, the reason the agent gave just before, whether it had even read that file, and what had just failed.
 - **Replays the run.** A timeline ("the tape") of every read, edit and command, with chapters (Explore, Change, Verify, Repair, Report). Scrub it, step through it with the keyboard, or press play and watch files light up in the file map.
 - **Flags what a reviewer should look at.** Deterministic rules, no AI: weakened tests, blind edits, failure loops, silenced errors, risky commands, leaked secrets, new dependencies, churn, sensitive files, unverified finishes, masked exit codes.
+- **Follows a run live.** `intent-replay watch` opens the session an agent is writing right now; the tape grows as it works and claims are checked the moment they're made.
+- **Compares agents.** Put two runs of the same task side by side: how much each explored before editing, what it changed, whether it verified the final change, and whether its claims held up.
 - **Fits your workflow.** A CLI that finds your local sessions, prints a PR-ready Markdown report, fails CI on high-severity findings, and exports a single offline HTML replay you can send to a reviewer.
 
 | Replay | Blame with "why" |
 |---|---|
 | ![Replay](docs/screenshots/replay.png) | ![Changes](docs/screenshots/changes.png) |
+| **Findings** | **Compare two agents** |
+| ![Findings](docs/screenshots/findings.png) | ![Compare](docs/screenshots/compare.png) |
 
 ## Who it's for
 
@@ -44,6 +48,7 @@ npm i -g github:Dakshhhhh-ops/intent    # builds on install, needs Node 20+
 
 intent-replay                     # list sessions for this folder and open the picker
 intent-replay open latest         # replay the newest session
+intent-replay watch               # follow the newest session live while the agent works
 intent-replay report latest       # PR-ready Markdown (--out report.md, --json)
 intent-replay check latest        # exit 1 on high findings (--fail-on medium|low)
 intent-replay export latest -o replay.html   # one offline file, secrets masked

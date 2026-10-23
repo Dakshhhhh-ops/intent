@@ -23,5 +23,6 @@ await shot('changes', `${app}?sample=cart-rounding#changes/test%2Fcart.test.js`,
   await page.waitForTimeout(300);
 });
 await shot('findings', `${app}?sample=cart-rounding#findings`);
+await shot('compare', `${app}?compare=csv-quotes-claude,csv-quotes-codex`);
 await browser.close();
 console.log('screenshots written to docs/screenshots');

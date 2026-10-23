@@ -77,7 +77,7 @@ export function Header({ onHome, onHelp }: { onHome: () => void; onHelp: () => v
       )}
       {!run && <div style={{ flex: 1 }} />}
       {run && <ExportMenu />}
-      <button className="icon-btn" onClick={onHelp} title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
+      <button className="icon-btn hide-sm" onClick={onHelp} title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
         <Icon name="keyboard" />
       </button>
       <button

@@ -6,15 +6,17 @@ import { SAMPLES } from '../samples';
 import type { CliSession } from './App';
 import { CrtSection } from './fx3d/CrtSection';
 import { SiteFooter } from './fx3d/SiteFooter';
-import { BlackBoxDial } from './home/BlackBoxDial';
 import { CursorFollower, RecTimecode } from './home/Extras';
-import { HowItWorks } from './home/HowItWorks';
-import { ProductShowcase } from './home/ProductShowcase';
-import { SampleList, type SampleRow } from './home/SampleList';
+import { CaseFiles, type CaseRow } from './home/CaseFiles';
+import { DiffVsReplay } from './home/DiffVsReplay';
+import { Gauges } from './home/Gauges';
+import { HeroBlackBox } from './home/HeroBlackBox';
+import { HorizontalStory } from './home/HorizontalStory';
 import { SessionPicker } from './home/SessionPicker';
+import { TerminalDemo } from './home/TerminalDemo';
 import { useHomeMotion } from './home/useHomeMotion';
 import { Icon } from './Icon';
-import { DotPattern, Marquee, NumberTicker, Spotlight } from './oss/Elements';
+import { DotPattern, Marquee, Spotlight } from './oss/Elements';
 import { Rich } from './Rich';
 
 function tapeColor(s: Step): string {
@@ -38,7 +40,7 @@ const TICKER: [string, Claim['verdict']][] = [
   ['Lint is clean.', 'unverified'],
 ];
 
-type Card = SampleRow & { trace: Trace; analysis: Analysis; text: string; contradicted: number };
+type Card = CaseRow & { trace: Trace; analysis: Analysis; text: string; contradicted: number };
 
 export function Home({
   onFile,
@@ -99,7 +101,6 @@ export function Home({
     [],
   );
   const hero = cards.find((c) => c.contradicted > 0) ?? cards[0];
-  const heroClaim = hero?.claims.find((c) => c.kind === 'tests-pass' && c.verdict === 'contradicted') ?? hero?.claims.find((c) => c.verdict === 'contradicted');
   const pick = () => input.current?.click();
 
   return (
@@ -108,10 +109,10 @@ export function Home({
       <div className="grain" aria-hidden="true" />
 
       {/* ------------------------------------------------------------ hero */}
-      <section className="h-hero">
+      <section className="h2-hero">
         <DotPattern />
         <Spotlight />
-        <div className="h-hero-grid">
+        <div className="h2-grid">
           <div className="h-hero-meta" data-rise data-rise-now>
             <p className="mono-intro">
               Intent Replay — v0.1
@@ -123,22 +124,13 @@ export function Home({
             <RecTimecode />
           </div>
 
-          <h1 className="h-title" data-reveal data-reveal-now>
-            Debug what
-            <br />
-            your agent
-            <br />
-            <em>actually</em> did.
+          <h1 className="h2-title" data-reveal data-reveal-now>
+            Debug what your agent <em>actually</em> did.
           </h1>
 
-          {hero && (
-            <div className="h-dial" data-rise data-rise-now data-rise-delay="0.25">
-              <BlackBoxDial steps={hero.trace.steps} phases={hero.analysis.phases} claim={heroClaim} onOpen={() => onSample(hero.id)} />
-              <p className="h-dial-cap">
-                <span className="cap-dot" /> A real replay of the sample run · click to open it
-              </p>
-            </div>
-          )}
+          <div className="h2-stage" data-rise data-rise-now data-rise-delay="0.2">
+            {hero && <HeroBlackBox trace={hero.trace} analysis={hero.analysis} onOpen={() => onSample(hero.id)} />}
+          </div>
 
           <div className="h-hero-bottom" data-rise data-rise-now data-rise-delay="0.45">
             <p className="h-lede">
@@ -161,10 +153,6 @@ export function Home({
               <Icon name="lock" size={13} /> Runs in your browser · nothing uploaded · secrets masked
             </p>
           </div>
-        </div>
-        <div className="scroll-cue" aria-hidden="true">
-          <span>Scroll</span>
-          <i />
         </div>
       </section>
 
@@ -200,7 +188,7 @@ export function Home({
       </div>
 
       {/* ------------------------------------------------------------ how it works */}
-      {hero && <HowItWorks trace={hero.trace} analysis={hero.analysis} raw={hero.text} />}
+      {hero && <HorizontalStory trace={hero.trace} analysis={hero.analysis} raw={hero.text} />}
 
       <div className="h-wrap">
         {/* ---------------------------------------------------------- samples */}
@@ -213,16 +201,11 @@ export function Home({
               </h2>
               <p className="h-sub">One scripted scenario with real test output, two real recorded runs.</p>
             </div>
-            <SampleList rows={cards} onOpen={onSample} />
-            {cards.some((c) => c.id === 'csv-quotes-claude') && cards.some((c) => c.id === 'csv-quotes-codex') && (
-              <button className="compare-strip vf" onClick={() => onCompare(['csv-quotes-claude', 'csv-quotes-codex'])} data-rise>
-                <span className="cs-vs">VS</span>
-                <span className="cs-text">
-                  <b>Same bug, two agents.</b> Claude Code and Codex CLI got the identical task. Compare how each explored, changed, verified and reported.
-                </span>
-                <Icon name="next" size={20} />
-              </button>
-            )}
+            <CaseFiles
+              rows={cards}
+              onOpen={onSample}
+              onCompare={cards.some((c) => c.id === 'csv-quotes-claude') && cards.some((c) => c.id === 'csv-quotes-codex') ? () => onCompare(['csv-quotes-claude', 'csv-quotes-codex']) : undefined}
+            />
           </section>
         )}
 
@@ -231,38 +214,21 @@ export function Home({
           <div className="h-head">
             <p className="eyebrow-mono">What you get</p>
             <h2 className="h-h2" data-reveal>
-              Everything the diff <em>doesn’t</em> tell you.
+              The diff says <em>what.</em> The replay says <em>why.</em>
             </h2>
-            <p className="h-sub">Deterministic rules over the log. No AI, no API keys, no account.</p>
+            <p className="h-sub">Drag the divider. On the left, the diff and summary you would normally approve. On the right, the same change as Intent Replay shows it.</p>
           </div>
-          {hero && <ProductShowcase analysis={hero.analysis} bars={hero.bars} />}
+          {hero && <DiffVsReplay trace={hero.trace} analysis={hero.analysis} />}
+        </section>
 
-          <div className="stats-band" data-stagger>
-            <div>
-              <b>
-                <NumberTicker value={12} />
-              </b>
-              <span>checks on every run</span>
-            </div>
-            <div>
-              <b>
-                <NumberTicker value={2} />
-              </b>
-              <span>agents: Claude Code and Codex CLI</span>
-            </div>
-            <div>
-              <b>
-                <NumberTicker value={530} suffix=" MB" />
-              </b>
-              <span>largest real session tested, opens in seconds</span>
-            </div>
-            <div>
-              <b>
-                <NumberTicker value={0} suffix=" bytes" />
-              </b>
-              <span>uploaded anywhere</span>
-            </div>
+        <section className="h-section">
+          <div className="h-head">
+            <p className="eyebrow-mono">Instrument panel</p>
+            <h2 className="h-h2" data-reveal>
+              Built to read <em>real</em> runs.
+            </h2>
           </div>
+          <Gauges />
         </section>
 
         {/* ---------------------------------------------------------- use it */}
@@ -273,39 +239,10 @@ export function Home({
               One command. <em>Or</em> one line in CI.
             </h2>
           </div>
-          <div className="cli-block" data-stagger>
-            <div className="terminal">
-              <span className="p">$</span> npm i -g github:Dakshhhhh-ops/intent{'\n'}
-              <span className="p">$</span> intent-replay{'\n'}
-              <span className="d">Sessions for ~/code/shop</span>
-              {'\n'}
-              {'  '}1 <span className="p">claude</span> <span className="d">2m ago </span> Fix the cart total rounding bug{'\n'}
-              {'  '}2 <span className="g">codex </span> <span className="d">1h ago </span> Add CSV export to orders{'\n'}
-              <span className="g">●</span> Intent Replay is running at http://127.0.0.1:4848/{'\n\n'}
-              <span className="p">$</span> intent-replay check latest{'\n'}
-              <span className="r">■ Needs review</span> <span className="d">3 high, 2 medium findings</span>
-              {'\n'}
-              {'  '}
-              <span className="r">contradicted</span> “All tests pass.”{'\n'}
-              {'  '}
-              <span className="r">high  </span> Tests in cart.test.js were weakened
-            </div>
-            <div className="terminal">
-              <span className="d"># .github/workflows/agent-review.yml</span>
-              {'\n'}- run: npx -y github:Dakshhhhh-ops/intent report $AGENT_LOG <span className="y">--out</span> report.md{'\n'}
-              - run: npx -y github:Dakshhhhh-ops/intent check $AGENT_LOG <span className="y">--fail-on</span> high{'\n\n'}
-              <span className="d"># follow a run while the agent works</span>
-              {'\n'}
-              <span className="p">$</span> intent-replay watch{'\n\n'}
-              <span className="d"># or share one offline file with a reviewer</span>
-              {'\n'}
-              <span className="p">$</span> intent-replay export latest <span className="y">-o</span> replay.html{'\n'}
-              <span className="g">✓</span> wrote replay.html <span className="d">(self-contained, secrets masked)</span>
-            </div>
-          </div>
+          <TerminalDemo />
 
           <div
-            className={`dropstrip vf ${over ? 'over' : ''}`}
+            className={`dock ${over ? 'over' : ''}`}
             onDragOver={(e) => {
               e.preventDefault();
               setOver(true);

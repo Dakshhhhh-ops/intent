@@ -5,6 +5,7 @@ import { splitLines } from '../core/util';
 import { DiffView, stepDiff } from './DiffView';
 import { Icon, KIND_ICON } from './Icon';
 import { Rich } from './Rich';
+import { RULE_INFO } from '../core/analyze/rules';
 import { fmtClock, fmtOffset, kindClass, PHASE_LABEL, useNav, useRun } from './model';
 
 const KIND_LABEL: Record<string, string> = {
@@ -190,39 +191,48 @@ export function Inspector({ step }: { step: Step | undefined }) {
         </div>
       </div>
 
-      {findings.map((f) => (
-        <div key={f.id} className={`banner ${f.severity}`}>
-          <Icon name="alert" />
-          <div>
-            <div className="bt">{f.title}</div>
-            <div className="bd">
-              <Rich text={f.detail} />
-            </div>
-          </div>
+      {(findings.length > 0 || claims.length > 0) && (
+        <div className="flags">
+          <p className="mono-label">
+            Flags on this step <span className="flags-n">{findings.length + claims.length}</span>
+          </p>
+          {findings.map((f) => (
+            <details key={f.id} className={`flag-row ${f.severity}`}>
+              <summary>
+                <span className={`sev-dot ${f.severity}`} />
+                <span className="flag-t">
+                  <Rich text={f.title} />
+                </span>
+                <span className="flag-rule">{RULE_INFO[f.rule].name}</span>
+              </summary>
+              <p>
+                <Rich text={f.detail} />
+              </p>
+            </details>
+          ))}
+          {claims.map((c) => (
+            <details key={c.id} className={`flag-row is-claim ${c.verdict}`}>
+              <summary>
+                <span className={`flag-stamp ${c.verdict}`}>{c.verdict}</span>
+                <span className="flag-t">
+                  {c.step === step.id ? 'Claim made here' : 'Evidence for'}: “<Rich text={c.text.length > 90 ? c.text.slice(0, 88) + '…' : c.text} />”
+                </span>
+              </summary>
+              <p>
+                <Rich text={c.explanation} />
+                {c.step !== step.id && (
+                  <>
+                    {' '}
+                    <button className="link-btn" onClick={() => nav.go(c.step)}>
+                      see the claim (#{c.step + 1})
+                    </button>
+                  </>
+                )}
+              </p>
+            </details>
+          ))}
         </div>
-      ))}
-
-      {claims.map((c) => (
-        <div key={c.id} className={`banner ${c.verdict === 'contradicted' ? 'high' : c.verdict === 'supported' ? 'info' : 'medium'}`}>
-          <Icon name={c.verdict === 'supported' ? 'check' : 'quote'} />
-          <div>
-            <div className="bt">
-              {c.step === step.id ? 'Claim made here' : 'Evidence for a claim'}: “{c.text}”
-            </div>
-            <div className="bd">
-              <b style={{ textTransform: 'capitalize' }}>{c.verdict}.</b> <Rich text={c.explanation} />
-              {c.step !== step.id && (
-                <>
-                  {' '}
-                  <button className="link-btn" onClick={() => nav.go(c.step)}>
-                    see the claim (#{c.step + 1})
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      ))}
+      )}
 
       {showIntent && (
         <div className="intent">

@@ -2,15 +2,10 @@
    film grain, smooth scroll, and a 3D footer. */
 
 .home {
-  --cream: #f4ede4;
-  --signal: #ff801f;
   position: relative;
   overflow-x: clip;
 }
 
-:root[data-theme='light'] .home {
-  --cream: #16171a;
-}
 
 /* ------------------------------------------------------------ grain + cursor */
 .grain {

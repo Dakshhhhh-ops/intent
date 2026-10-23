@@ -1,8 +1,10 @@
-import { formatDuration } from '../core/report/markdown';
+import { useState } from 'react';
 import type { Claim, ClaimKind, Phase, PhaseKind, Step } from '../core/types';
+import { Evidence } from './Evidence';
+import { BlackBoxDial } from './home/BlackBoxDial';
 import { Icon } from './Icon';
+import { PHASE_LABEL, useNav, useRun } from './model';
 import { Rich } from './Rich';
-import { fmtTokens, PHASE_LABEL, useNav, useRun } from './model';
 
 const VERDICT_TEXT: Record<Claim['verdict'], string> = {
   supported: 'Supported',
@@ -32,63 +34,64 @@ export function Brief() {
   const run = useRun();
   const nav = useNav();
   const { analysis: a, trace } = run;
-  const st = a.stats;
   const task = trace.steps.find((s) => s.kind === 'prompt');
   const contradicted = a.claims.filter((c) => c.verdict === 'contradicted').length;
   const high = a.findings.filter((f) => f.severity === 'high').length;
-  const sev = (s: string) => a.findings.filter((f) => f.severity === s).length;
-  // Show the most important claims first; keep the panel short on long runs.
   const order: Record<Claim['verdict'], number> = { contradicted: 0, stale: 1, unverified: 2, supported: 3 };
   const claims = [...a.claims].sort((x, y) => order[x.verdict] - order[y.verdict] || y.step - x.step).slice(0, 8);
+  const topClaim = claims[0];
+  const [open, setOpen] = useState<Record<string, boolean>>({});
 
   return (
-    <div className="page">
+    <div className="page brief2">
       <section className={`brief-hero ${a.verdict.level}`}>
-        <div>
-          <div className="kicker">
+        <div className="bh-copy">
+          <p className="mono-label">
             <span className={`sev-dot ${a.verdict.level === 'risky' ? 'high' : a.verdict.level === 'review' ? 'medium' : 'low'}`} />
             {a.verdict.label}
-          </div>
-          <h1>{headline(a.verdict.level, contradicted, high, st.filesChanged)}</h1>
-          <p className="summary">{a.verdict.summary}</p>
+          </p>
+          <h1>{headline(a.verdict.level, contradicted, high, a.stats.filesChanged)}</h1>
+          <p className="bh-summary">{a.verdict.summary}</p>
           {task && (
-            <button className="task-quote" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => nav.go(task.id)} title="Open the task in the replay">
-              <Icon name="prompt" />
-              <span>{task.text}</span>
+            <button className="bh-task" onClick={() => nav.go(task.id)} title="Open the task in the replay">
+              <span className="mono-label">The task</span>
+              <q>{task.text}</q>
             </button>
           )}
+          <div className="bh-actions">
+            <button className="cta cta-primary vf" onClick={() => nav.go(0)}>
+              <span>Replay the run</span>
+              <Icon name="play" size={14} />
+            </button>
+            <button className="cta vf" onClick={() => nav.setTab('findings')}>
+              <span>
+                {a.findings.length} finding{a.findings.length === 1 ? '' : 's'}
+              </span>
+              <Icon name="next" size={16} />
+            </button>
+          </div>
         </div>
-        <div className="stat-grid">
-          <Stat v={formatDuration(st.durationMs)} k="duration" />
-          <Stat v={String(st.steps)} k="steps" />
-          <Stat v={String(st.filesRead)} k="files read" />
-          <Stat v={String(st.filesChanged)} k={`files changed`} extra={`+${st.linesAdded} −${st.linesRemoved}`} />
-          <Stat v={String(st.commands)} k="commands run" />
-          <Stat v={String(st.commandsFailed)} k="commands failed" bad={st.commandsFailed > 0} />
-          {st.tokensOut > 0 && <Stat v={fmtTokens(st.tokensIn + st.tokensCached)} k="tokens in" />}
-          {st.tokensOut > 0 && <Stat v={fmtTokens(st.tokensOut)} k="tokens out" />}
-          {st.prompts > 1 && <Stat v={String(st.prompts)} k="instructions" />}
+        <div className="bh-dial">
+          <BlackBoxDial steps={trace.steps} phases={a.phases} claim={topClaim} onOpen={() => nav.go(0)} />
         </div>
       </section>
 
-      <div className="brief-grid">
-        <section className="panel" aria-labelledby="claims-h">
-          <div className="panel-head">
-            <h2 id="claims-h">
-              <Icon name="quote" /> Claim check
-            </h2>
-            <span className="hint">What the agent said vs. what the log shows</span>
-          </div>
-          <div className="panel-body">
-            {claims.length === 0 && (
-              <div className="empty">The agent's closing messages make no checkable claims (like “tests pass” or “only changed X”).</div>
-            )}
-            {claims.map((c) => (
-              <article className="claim" key={c.id}>
-                <div>
+      <section className="b-section" aria-labelledby="claims-h">
+        <div className="b-head">
+          <p className="mono-label">Claim check</p>
+          <h2 id="claims-h">What the agent said, against what the log shows.</h2>
+        </div>
+        {claims.length === 0 && (
+          <div className="b-empty vf">The agent's closing messages make no checkable claims (like “tests pass” or “only changed X”).</div>
+        )}
+        <div className="b-claims">
+          {claims.map((c) => {
+            const show = open[c.id] ?? c.verdict === 'contradicted';
+            const ev = c.evidence[0] !== undefined ? trace.steps[c.evidence[0]] : undefined;
+            return (
+              <article className={`claim b-claim ${c.verdict}`} key={c.id}>
+                <div className="b-claim-main">
                   <span className={`stamp ${c.verdict}`}>{VERDICT_TEXT[c.verdict]}</span>
-                </div>
-                <div>
                   <blockquote>
                     <Rich text={c.text} />
                   </blockquote>
@@ -111,101 +114,83 @@ export function Brief() {
                         <Icon name="eye" size={11} /> evidence #{e + 1}
                       </button>
                     ))}
+                    {ev && (
+                      <button className="fx-toggle" onClick={() => setOpen((o) => ({ ...o, [c.id]: !show }))}>
+                        {show ? 'Hide proof' : 'Show proof'}
+                      </button>
+                    )}
                   </div>
                 </div>
+                {show && ev && (
+                  <div className="b-claim-ev">
+                    <Evidence step={ev} onOpen={(x) => nav.go(x)} />
+                  </div>
+                )}
               </article>
-            ))}
-            {a.claims.length > claims.length && (
-              <div className="empty" style={{ padding: '10px 16px', textAlign: 'left' }}>
-                + {a.claims.length - claims.length} more supported claims in this run.
-              </div>
-            )}
-          </div>
-        </section>
+            );
+          })}
+        </div>
+        {a.claims.length > claims.length && <p className="b-more">+ {a.claims.length - claims.length} more supported claims in this run.</p>}
+      </section>
 
-        <section className="panel" aria-labelledby="review-h">
-          <div className="panel-head">
-            <h2 id="review-h">
-              <Icon name="target" /> Review first
-            </h2>
-            <span className="hint">Ranked by risk</span>
+      <div className="b-two">
+        <section className="b-section" aria-labelledby="review-h">
+          <div className="b-head">
+            <p className="mono-label">Review first</p>
+            <h2 id="review-h">Ranked by risk.</h2>
           </div>
-          <div className="panel-body">
-            {a.review.length === 0 && <div className="empty">Nothing stands out.</div>}
+          {a.review.length === 0 && <div className="b-empty vf">Nothing stands out.</div>}
+          <ol className="b-review">
             {a.review.map((r, i) => (
-              <button
-                key={i}
-                className="review-item"
-                onClick={() => (r.file && !r.step ? nav.openFile(r.file) : r.step !== null ? nav.go(r.step) : r.file && nav.openFile(r.file))}
-              >
-                <span className="rank">{String(i + 1).padStart(2, '0')}</span>
-                <span style={{ minWidth: 0 }}>
-                  <span className="t">
-                    <span className={`sev-dot ${r.severity}`} />
-                    <span>
-                      <Rich text={r.title} />
+              <li key={i}>
+                <button className="review-item" onClick={() => (r.file && !r.step ? nav.openFile(r.file) : r.step !== null ? nav.go(r.step) : r.file && nav.openFile(r.file))}>
+                  <span className="rank">{String(i + 1).padStart(2, '0')}</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span className="t">
+                      <span className={`sev-dot ${r.severity}`} />
+                      <span>
+                        <Rich text={r.title} />
+                      </span>
+                    </span>
+                    <span className="w">
+                      <Rich text={r.why} />
                     </span>
                   </span>
-                  <span className="w">
-                    <Rich text={r.why} />
+                  <Icon name="next" size={16} />
+                </button>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="b-section" aria-labelledby="story-h">
+          <div className="b-head">
+            <p className="mono-label">How the run unfolded</p>
+            <h2 id="story-h">{chapters(a.phases, trace.steps).length} chapters.</h2>
+          </div>
+          <ol className="b-story">
+            {chapters(a.phases, trace.steps).map((c, i) => (
+              <li key={i} className={`phase-${c.kind}`}>
+                <button onClick={() => nav.go(c.from)}>
+                  <span className="b-story-bar">
+                    {c.segs.map((sg, j) => (
+                      <i key={j} className={`phase-${sg.kind}`} style={{ flexGrow: sg.len }} />
+                    ))}
                   </span>
-                </span>
-                <Icon name="next" size={14} style={{ color: 'var(--text-3)', marginTop: 3 }} />
-              </button>
+                  <span className="b-story-ph">
+                    {c.label}
+                    <span>
+                      #{c.from + 1}
+                      {c.to > c.from ? `–${c.to + 1}` : ''}
+                    </span>
+                  </span>
+                  <span className="b-story-s">{c.summary}</span>
+                </button>
+              </li>
             ))}
-          </div>
-          <div className="sev-summary">
-            {(['high', 'medium', 'low'] as const).map((s) => (
-              <button key={s} className={`chip ${s}`} onClick={() => nav.setTab('findings')}>
-                {sev(s)} {s}
-              </button>
-            ))}
-            <button className="link-btn" style={{ marginLeft: 'auto' }} onClick={() => nav.setTab('findings')}>
-              All findings <Icon name="next" size={13} />
-            </button>
-          </div>
+          </ol>
         </section>
       </div>
-
-      <section className="panel story" aria-labelledby="story-h">
-        <div className="panel-head">
-          <h2 id="story-h">
-            <Icon name="rewind" /> How the run unfolded
-          </h2>
-          <span className="hint">Click a chapter to replay it</span>
-        </div>
-        <div className="story-track">
-          {chapters(a.phases, trace.steps).map((c, i) => (
-            <button key={i} className={`chapter phase-${c.kind}`} onClick={() => nav.go(c.from)} style={{ flexGrow: Math.max(1, Math.log2(c.to - c.from + 2)) }}>
-              <div className="bar segs">
-                {c.segs.map((sg, j) => (
-                  <span key={j} className={`phase-${sg.kind}`} style={{ flexGrow: sg.len }} />
-                ))}
-              </div>
-              <div className="ph">
-                {c.label}
-                <span className="n num">
-                  #{c.from + 1}
-                  {c.to > c.from ? `–${c.to + 1}` : ''}
-                </span>
-              </div>
-              <div className="s">{c.summary}</div>
-            </button>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function Stat({ v, k, extra, bad }: { v: string; k: string; extra?: string; bad?: boolean }) {
-  return (
-    <div className="stat">
-      <div className={`v ${bad ? 'bad' : ''}`}>
-        {v}
-        {extra && <small>{extra}</small>}
-      </div>
-      <div className="k">{k}</div>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import './ui/styles.css';
 import './ui/oss/oss.css';
 import './ui/fx3d/footer.css';
 import './ui/home/home.css';
+import './ui/app.css';
 
 // Keep the untouched page so "Download replay" can clone the viewer with a run baked in.
 window.__IR_PRISTINE__ = `<!doctype html>\n${document.documentElement.outerHTML}`;

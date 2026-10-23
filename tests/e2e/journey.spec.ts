@@ -24,21 +24,21 @@ test('core journey: brief → contradicted claim → evidence → blame → why'
   expect(page.url()).toContain('#replay/12');
 
   await page.keyboard.press('3');
-  await page.getByRole('button', { name: /test\/cart\.test\.js/ }).click();
+  await page.locator('.file-item', { hasText: 'test/cart.test.js' }).click();
   await page.locator('.diff-line.add.selectable').first().click();
   const why = page.getByRole('complementary', { name: 'Why this line' });
   await expect(why).toContainText('Same failures');
   await expect(why).toContainText('Right after a failure');
 
   await page.keyboard.press('4');
-  await expect(page.locator('.finding h3', { hasText: 'were weakened' })).toBeVisible();
+  await expect(page.locator('.fx-card h3', { hasText: 'were weakened' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
 test('recorded runs open and look clean', async ({ page }) => {
   for (const id of ['csv-quotes-claude', 'csv-quotes-codex']) {
     await page.goto(`${app}?sample=${id}`);
-    await expect(page.locator('.verdict-pill').first()).toContainText('Looks clean');
+    await expect(page.locator('.rh-verdict')).toContainText('Looks clean');
     await expect(page.locator('.stamp').first()).toHaveText('Supported');
   }
 });
@@ -77,7 +77,7 @@ test('CLI export and in-app download both produce a working offline replay', asy
   const saved = info.outputPath('app-replay.html');
   await download.saveAs(saved);
   await page.goto(pathToFileURL(saved).href);
-  await expect(page.locator('.verdict-pill').first()).toContainText('Looks clean');
+  await expect(page.locator('.rh-verdict')).toContainText('Looks clean');
   expect(errors).toEqual([]);
 });
 
@@ -88,5 +88,5 @@ test('compare two agents on the same task', async ({ page }) => {
   await expect(page.locator('.cmp-head .chip')).toHaveText(['Claude Code', 'Codex CLI']);
   await expect(page.locator('.panel-head h2', { hasText: 'src/csv.js' })).toBeVisible();
   await page.getByRole('button', { name: /Open this run/ }).nth(1).click();
-  await expect(page.locator('.runhead')).toContainText('Codex CLI');
+  await expect(page.locator('.runhead2')).toContainText('Codex CLI');
 });

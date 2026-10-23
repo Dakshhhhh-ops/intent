@@ -25,6 +25,10 @@ export function ParticleWordmark({ text = 'INTENT REPLAY' }: { text?: string }) 
     const build = () => {
       W = canvas.clientWidth;
       H = canvas.clientHeight;
+      if (W < 2 || H < 2) {
+        ps = [];
+        return; // not laid out yet (hidden or mid-transition)
+      }
       canvas.width = W * dpr;
       canvas.height = H * dpr;
       const off = document.createElement('canvas');

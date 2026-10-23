@@ -132,8 +132,8 @@ Import (Claude Code, Codex, Intent Trace) → normalized timeline → change att
 
 ## Deferred From the POC
 
-- Live mode (tailing a running session) — needs file watching and streaming; the replay already proves the idea.
-- Run comparison — needs two runs of the same task and a diffing UI.
+- ~~Live mode (tailing a running session)~~ — built after the core: `intent-replay watch` polls the session file and the viewer follows the newest step.
+- ~~Run comparison~~ — built after the core: the Compare view puts two runs of the same task side by side.
 - GitHub App / Action that comments automatically — the CLI `report` + `check` cover the same need manually.
 - Team sharing with links — requires hosting user data, which conflicts with local-first.
 

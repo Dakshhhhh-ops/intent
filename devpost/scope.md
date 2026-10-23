@@ -56,8 +56,8 @@ Open a real Claude Code (or Codex) session log. Within seconds the Brief shows: 
 
 ## Later
 
-- Live mode: watch a run as it happens.
-- Comparing two runs of the same task.
+- ~~Live mode: watch a run as it happens.~~ Built after the core (`intent-replay watch`).
+- ~~Comparing two runs of the same task.~~ Built after the core (Compare view).
 - A GitHub Action that posts the report on every agent-authored PR.
 - More agents (Gemini CLI, Cursor, Aider).
 - Optional AI-written narrative on top of the deterministic facts.

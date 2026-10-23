@@ -103,6 +103,14 @@ PRD ref: `prd.md > Exports and CLI`.
 `App` (routing between Home and Run, boot sources), `Home`, `RunHeader`, `Brief`, `Replay` (`Tape`, `StepList`, `Inspector`, `ContextPanel`, `FileMap`), `Changes` (`FileList`, `BlameDiff`, `WhyDrawer`), `Findings`, `ExportMenu`, `KeyboardHelp`. State lives in one `useRun` store (selected step, tab, playback) — no external state library.
 PRD ref: `prd.md > Screens and Layout`.
 
+### Compare (`src/ui/Compare.tsx`)
+Builds both runs with the same core, derives per-run metrics (reads and searches before the first edit, edits, checks, whether the final change was verified, claim verdicts, findings) and renders them as aligned rows, plus side-by-side diffs for files both runs changed. Route: `?compare=<sampleA>,<sampleB>`.
+PRD ref: `prd.md > The Core Journey`.
+
+### Live mode
+`intent-replay watch [target]` serves the viewer with `live: true`; the viewer polls `/api/sessions/:key/stat` every 1.5 s and, when the file grows, re-parses and re-analyzes it, keeping the selected tab and following the newest step if the reader was already at the end. Session keys are hashes of the log path, so they stay stable when new sessions appear.
+PRD ref: `prd.md > Exports and CLI`.
+
 ### CLI (`cli/`)
 `sessions.ts` (discovery), `server.ts` (node:http, serves viewer + `/api/sessions`, `/api/sessions/:id/raw`), `main.ts` (argument parsing for list/open/report/check/export).
 PRD ref: `prd.md > Exports and CLI`.

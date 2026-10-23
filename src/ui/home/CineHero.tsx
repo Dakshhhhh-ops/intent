@@ -64,7 +64,7 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
         if (!r) stage.current.classList.add('no-webgl');
         dispose = r?.dispose;
       });
-    }, 150);
+    }, 1300);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -105,7 +105,6 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
     return () => st.kill();
   }, []);
 
-  const words = ['Debug', 'what', 'your', 'agent', 'actually', 'did.'];
   const titleOut = Math.min(1, p / 0.22);
   const midIn = p > 0.3 && p < 0.58;
   const pct = Math.round(Math.min(1, p / 0.62) * 100);
@@ -114,37 +113,27 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
     <section className="ch" ref={section} aria-label="Intent Replay">
       <div className="ch-sticky">
         <div className="ch-bg" aria-hidden="true" />
-        <h1
-          className="ch-title"
-          ref={title}
-          style={{ opacity: 1 - titleOut, transform: `scale(${1 + titleOut * 0.35})`, filter: `blur(${titleOut * 8}px)` }}
-        >
-          <span className="ch-line">
-            {words.slice(0, 2).map((w) => (
-              <span key={w} className="ch-mask">
-                <span className="ch-word">{w}</span>
-              </span>
-            ))}
-          </span>
-          <span className="ch-line">
-            {words.slice(2, 4).map((w) => (
-              <span key={w} className="ch-mask">
-                <span className="ch-word">{w}</span>
-              </span>
-            ))}
-          </span>
-          <span className="ch-line">
-            <span className="ch-mask">
-              <em className="ch-word">actually</em>
+        <div className="ch-copy" style={{ opacity: 1 - titleOut, transform: `translateY(${-titleOut * 60}px) scale(${1 + titleOut * 0.12})`, filter: `blur(${titleOut * 8}px)` }}>
+          <h1 className="ch-title" ref={title}>
+            <span className="ch-line quote">
+              {['“All', 'tests', 'pass.”'].map((w) => (
+                <span key={w} className="ch-mask">
+                  <em className="ch-word">{w}</em>
+                </span>
+              ))}
             </span>
-            <span className="ch-mask">
-              <span className="ch-word">did.</span>
+            <span className="ch-line">
+              {['Prove', 'it.'].map((w) => (
+                <span key={w} className="ch-mask">
+                  <span className="ch-word">{w}</span>
+                </span>
+              ))}
             </span>
-          </span>
-        </h1>
-        <p className="ch-sub ch-reveal" style={{ opacity: 1 - titleOut }}>
-          Your coding agent says <q>all tests pass</q>. Intent Replay checks that against what actually ran, and shows the step that proves it.
-        </p>
+          </h1>
+          <p className="ch-sub ch-reveal">
+            Intent Replay fact-checks what your coding agent says it did against the commands that actually ran, and shows you the step that proves it.
+          </p>
+        </div>
 
         <div className="ch-stage" ref={stage} aria-hidden="true" />
 
@@ -178,7 +167,7 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
           <RecTimecode />
           <span>{trace.steps.length} steps on tape</span>
         </div>
-        <div className="ch-hud bl ch-reveal">
+        <div className={`ch-hud bl ${p > 0.02 ? 'on' : ''}`}>
           <span className="ch-pct">{String(pct).padStart(3, '0')}%</span>
           <span>tape unspooled</span>
         </div>

@@ -176,25 +176,6 @@
   mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, #000 20%, transparent 75%);
 }
 
-.ch-title {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  text-align: center;
-  font-family: var(--font-display);
-  font-size: clamp(64px, 12.5vw, 220px);
-  line-height: 0.84;
-  letter-spacing: -0.06em;
-  font-weight: 800;
-  color: var(--cream);
-  pointer-events: none;
-  will-change: transform, opacity;
-  z-index: 1;
-}
-
 .ch-line {
   display: flex;
   gap: 0.22em;
@@ -209,15 +190,6 @@
 
 .ch-word {
   display: inline-block;
-}
-
-.ch-title em {
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  color: var(--signal);
-  padding-right: 0.05em;
 }
 
 .ch-stage {
@@ -552,39 +524,78 @@
   transition: opacity 0.4s, transform 0.4s;
 }
 
-/* The one-line pitch under the title: the claim check first. */
+/* Headline and pitch: top of the first screen, above the 3D canvas, which sits lower. */
+.ch-copy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: clamp(36px, 9vh, 96px);
+  z-index: 3;
+  display: grid;
+  justify-items: center;
+  gap: 22px;
+  padding: 0 20px;
+  text-align: center;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
 .ch-title {
-  padding-bottom: 170px;
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  font-family: var(--font-display);
+  font-size: clamp(52px, 8vw, 128px);
+  line-height: 0.92;
+  letter-spacing: -0.055em;
+  font-weight: 800;
+  color: var(--cream);
+  text-shadow: 0 2px 40px rgba(8, 9, 10, 0.6);
+}
+
+.ch-line.quote {
+  gap: 0.18em;
+}
+
+.ch-line.quote em {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--signal);
+  padding-right: 0.04em;
 }
 
 .ch-sub {
-  position: absolute;
-  left: 50%;
-  bottom: 168px;
-  z-index: 3;
-  width: min(640px, calc(100% - 40px));
+  max-width: 700px;
   margin: 0;
-  transform: translateX(-50%);
-  text-align: center;
   font-size: clamp(16px, 1.35vw, 19px);
   line-height: 1.5;
   color: var(--text-2);
-  pointer-events: none;
+  text-shadow: 0 1px 24px rgba(8, 9, 10, 0.9);
 }
 
-.ch-sub q {
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-size: 1.2em;
-  color: var(--cream);
+/* The unspool counter only means something once you scroll. */
+.ch-hud.bl {
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.ch-hud.bl.on {
+  opacity: 1;
 }
 
 @media (max-width: 800px) {
-  .ch-title {
-    padding-bottom: 210px;
+  .ch-hud.tl {
+    display: none;
   }
 
-  .ch-sub {
-    bottom: 150px;
+  .ch-copy {
+    top: 28px;
+    gap: 16px;
+  }
+
+  .ch-title {
+    font-size: clamp(44px, 13vw, 72px);
   }
 }

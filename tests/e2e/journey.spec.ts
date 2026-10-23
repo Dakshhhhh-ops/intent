@@ -9,7 +9,7 @@ test('core journey: brief → contradicted claim → evidence → blame → why'
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(app);
-  await expect(page.getByRole('heading', { name: /actually/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Prove it/ })).toBeVisible();
 
   await page.getByRole('button', { name: /See a run/ }).click();
   await expect(page.getByRole('heading', { name: 'The agent said it was done. The log disagrees.' })).toBeVisible();

@@ -338,6 +338,12 @@ export function startCine(host: HTMLElement, steps: TapeStep[], state: CineState
     const settle = smooth(0.2, 0.7, p);
     rig.rotation.y = lerp(yaw, Math.round(yaw / (Math.PI * 2)) * Math.PI * 2, settle);
     rig.rotation.x = lerp(pitch, 0.05, settle);
+    // First screen: the recorder sits small and low, under the headline, never on it.
+    // Scrolling brings it to the centre at full size for the timeline.
+    const halfH = Math.tan((camera.fov * Math.PI) / 360) * camera.position.z;
+    const below = 1 - smooth(0.02, 0.3, p);
+    rig.position.y = lerp(0, -halfH * (W / H < 1 ? 0.16 : 0.31), below);
+    rig.scale.setScalar(lerp(1, 0.48, below));
 
     // box: drops in, then rises and shrinks to make room for the timeline
     const drop = 1 - Math.pow(1 - intro, 3);

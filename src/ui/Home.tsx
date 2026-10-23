@@ -10,6 +10,7 @@ import { BlackBoxDial } from './home/BlackBoxDial';
 import { CursorFollower, RecTimecode } from './home/Extras';
 import { HowItWorks } from './home/HowItWorks';
 import { SampleList, type SampleRow } from './home/SampleList';
+import { SessionPicker } from './home/SessionPicker';
 import { useHomeMotion } from './home/useHomeMotion';
 import { Icon } from './Icon';
 import { DotPattern, MagicCard, Marquee, NumberTicker, Spotlight } from './oss/Elements';
@@ -23,14 +24,6 @@ function tapeColor(s: Step): string {
   if (s.kind === 'command') return 'var(--verify)';
   if (s.kind === 'prompt') return 'var(--prompt)';
   return 'var(--border-strong)';
-}
-
-function ago(ms: number): string {
-  const s = (Date.now() - ms) / 1000;
-  if (s < 90) return 'just now';
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
 }
 
 // Sentences the claim checker recognizes, with verdicts it can give them.
@@ -196,21 +189,9 @@ export function Home({
               <h2 className="h-h2" data-reveal>
                 Your sessions
               </h2>
-              <p className="h-sub">{cwd ? `Newest first · ${cwd}` : 'Newest first'}</p>
+              <p className="h-sub">Every Claude Code and Codex session on this machine, newest first. Pick one to replay it.</p>
             </div>
-            <div className="sessions">
-              {sessions.length === 0 && <div className="empty">No Claude Code or Codex sessions found.</div>}
-              {sessions.slice(0, 40).map((s) => (
-                <button key={s.key ?? s.id} className="session-row" onClick={() => onSession(s)}>
-                  <span className={`chip ${s.agent === 'codex' ? 'low' : 'accent'}`}>{s.agent === 'codex' ? 'Codex' : 'Claude'}</span>
-                  <span className="t" title={s.title}>
-                    {s.title}
-                  </span>
-                  <span className="m">{ago(s.mtime)}</span>
-                  <span className="m">{(s.size / 1024 / 1024).toFixed(1)} MB</span>
-                </button>
-              ))}
-            </div>
+            <SessionPicker sessions={sessions} cwd={cwd} onOpen={onSession} />
           </section>
         )}
       </div>

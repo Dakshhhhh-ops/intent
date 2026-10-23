@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseTrace, UnsupportedFormatError } from '../core/parse/detect';
 import { parseIntentTrace } from '../core/parse/intentTrace';
+import { slimLog, slimStream } from '../core/parse/slim';
+import type { Trace } from '../core/types';
+import ParseWorker from './parseWorker?worker&inline';
+import type { WorkerReply } from './parseWorker';
 import { SAMPLES } from '../samples';
 import { Brief } from './Brief';
 import { Changes } from './Changes';
@@ -68,40 +72,93 @@ export function App() {
     toastTimer.current = window.setTimeout(() => setToastMsg(null), 2600);
   }, []);
 
-  const open = useCallback((text: string, source: RunSource) => {
-    setError(null);
-    setLoading(`Reading ${source.name}…`);
-    // Let the spinner paint before a large parse.
-    window.setTimeout(() => {
-      try {
-        const trace = source.kind === 'embedded' ? parseIntentTrace(text) : parseTrace(text, source.name);
-        if (source.kind === 'sample') trace.label ??= 'Sample';
-        if (!trace.steps.length) throw new Error('This log has no steps I can show (it may be empty or a different kind of file).');
-        const data = buildRun(trace, source);
-        setRun(data);
-        const h = readHash();
-        const lastStep = trace.steps.length - 1;
-        setTabState(h.tab);
-        setStep(h.step !== null ? Math.min(Math.max(0, h.step), lastStep) : 0);
-        setFile(h.file ?? data.analysis.files[0]?.path ?? null);
-        if (source.kind === 'sample' && source.sampleId) {
-          const u = new URL(location.href);
-          u.searchParams.set('sample', source.sampleId);
-          history.replaceState(null, '', u.toString());
-        }
-      } catch (e) {
-        setError(e instanceof UnsupportedFormatError ? e.message : `Couldn't read this file: ${(e as Error).message}`);
-      } finally {
-        setLoading(null);
-      }
-    }, 30);
+  const show = useCallback((trace: Trace, source: RunSource) => {
+    if (source.kind === 'sample') trace.label ??= 'Sample';
+    if (!trace.steps.length) throw new Error('This log has no steps I can show (it may be empty or a different kind of file).');
+    const data = buildRun(trace, source);
+    setRun(data);
+    const h = readHash();
+    const lastStep = trace.steps.length - 1;
+    setTabState(h.tab);
+    setStep(h.step !== null ? Math.min(Math.max(0, h.step), lastStep) : 0);
+    setFile(h.file ?? data.analysis.files[0]?.path ?? null);
+    if (source.kind === 'sample' && source.sampleId) {
+      const u = new URL(location.href);
+      u.searchParams.set('sample', source.sampleId);
+      history.replaceState(null, '', u.toString());
+    }
   }, []);
+
+  const fail = useCallback((e: unknown) => {
+    setError(e instanceof UnsupportedFormatError ? e.message : `Couldn't read this file: ${(e as Error).message}`);
+  }, []);
+
+  const open = useCallback(
+    (text: string, source: RunSource) => {
+      setError(null);
+      setLoading(`Reading ${source.name}…`);
+      // Let the spinner paint before a large parse.
+      window.setTimeout(() => {
+        try {
+          show(source.kind === 'embedded' ? parseIntentTrace(text) : parseTrace(slimLog(text), source.name), source);
+        } catch (e) {
+          fail(e);
+        } finally {
+          setLoading(null);
+        }
+      }, 30);
+    },
+    [show, fail],
+  );
 
   const openFile = useCallback(
     (f: File) => {
-      f.text().then((text) => open(text, { kind: 'file', name: f.name }));
+      const source: RunSource = { kind: 'file', name: f.name };
+      setError(null);
+      setLoading(`Reading ${f.name}…`);
+      const mb = (n: number) => (n / 1e6 < 10 ? (n / 1e6).toFixed(1) : Math.round(n / 1e6));
+      let worker: Worker | null = null;
+      try {
+        worker = new ParseWorker();
+      } catch {
+        worker = null;
+      }
+      if (!worker) {
+        // No workers (an unusual sandbox): read and parse here instead.
+        slimStream(f.stream()).then((text) => open(text, source), fail);
+        return;
+      }
+      const w = worker;
+      w.onmessage = (e: MessageEvent<WorkerReply>) => {
+        const m = e.data;
+        if (m.type === 'progress') {
+          setLoading(m.parsing ? `Reconstructing ${f.name}…` : `Reading ${f.name} · ${mb(m.bytes)} of ${mb(f.size)} MB`);
+          return;
+        }
+        w.terminate();
+        if (m.type === 'error') {
+          setLoading(null);
+          fail(m.unsupported ? new UnsupportedFormatError(m.message) : new Error(m.message));
+          return;
+        }
+        setLoading('Checking claims against the log…');
+        window.setTimeout(() => {
+          try {
+            show(m.trace, source);
+          } catch (err) {
+            fail(err);
+          } finally {
+            setLoading(null);
+          }
+        }, 30);
+      };
+      w.onerror = () => {
+        w.terminate();
+        slimStream(f.stream()).then((text) => open(text, source), fail);
+      };
+      w.postMessage({ file: f });
     },
-    [open],
+    [open, show, fail],
   );
 
   const openSample = useCallback(

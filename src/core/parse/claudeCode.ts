@@ -1,6 +1,7 @@
 import type { EditInfo, PlanItem, Step, StepKind, Trace, Usage } from '../types';
 import { classifyCommand, shellReadTargets, shellWriteTargets } from '../analyze/commands';
 import { redact } from '../redact';
+import { slimLine } from './slim';
 import { basename, countLines, countPatch, hash, oneLine, parseTime, relPath, stripAnsi, truncate } from '../util';
 
 // Claude Code writes one JSON object per line to ~/.claude/projects/<project>/<session>.jsonl.
@@ -71,9 +72,14 @@ export function parseClaudeCode(text: string, name = 'session.jsonl'): Trace {
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line) continue;
+    const slim = slimLine(line);
+    if (slim === null) {
+      skipped++;
+      continue;
+    }
     let o: Json;
     try {
-      o = JSON.parse(line);
+      o = JSON.parse(slim);
     } catch {
       bad++;
       continue;

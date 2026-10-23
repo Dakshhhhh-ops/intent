@@ -64,7 +64,9 @@ export function buildRun(trace: Trace, source: RunSource): RunData {
     lastFailBefore.push(fail);
     if (s.command?.failed) fail = s.id;
   }
-  const times = trace.steps.map((s) => s.t).filter((t): t is number => t !== null);
+  // A loop, not Math.min(...times): spreading a huge array overflows the call stack.
+  let firstT: number | null = null;
+  for (const s of trace.steps) if (s.t !== null && (firstT === null || s.t < firstT)) firstT = s.t;
   return {
     trace,
     analysis,
@@ -77,7 +79,7 @@ export function buildRun(trace: Trace, source: RunSource): RunData {
     promptAt,
     lastFailBefore,
     planAt,
-    t0: trace.startedAt ?? (times.length ? Math.min(...times) : null),
+    t0: trace.startedAt ?? firstT,
   };
 }
 

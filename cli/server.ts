@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootTag, injectIntoHead, stripInjected } from '../src/core/embed';
+import { slimBytes } from '../src/core/parse/slim';
 import type { SessionInfo } from './sessions';
 
 // A tiny local server: the viewer page plus the raw logs it asks for.
@@ -54,7 +55,8 @@ export function startServer(opts: {
           const st = statSync(path);
           return send(200, 'application/json', JSON.stringify({ size: st.size, mtime: st.mtimeMs }));
         }
-        return send(200, 'text/plain; charset=utf-8', readFileSync(path));
+        // Slimmed: API request dumps and base64 images never reach the browser.
+        return send(200, 'text/plain; charset=utf-8', slimBytes(readFileSync(path)));
       }
       send(404, 'text/plain', 'Not found');
     } catch (e) {

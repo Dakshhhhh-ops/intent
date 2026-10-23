@@ -3,6 +3,7 @@ import {
   classifyCommand,
   failureHeadline,
   masksExitCode,
+  shellCode,
   outputLooksFailed,
   shellReadTargets,
   shellWriteTargets,
@@ -132,5 +133,20 @@ describe('masksExitCode', () => {
 describe('failureHeadline', () => {
   it('picks the line that explains the failure', () => {
     expect(failureHeadline('> vitest\n\nAssertionError: expected 3 to be 4\n  at x')).toBe('AssertionError: expected 3 to be 4');
+  });
+});
+
+describe('shellCode', () => {
+  it('drops heredoc bodies but keeps the command around them', () => {
+    expect(shellCode("python - <<'EOF'\nprint('npm test')\nEOF\necho done")).toBe("python - <<HEREDOC\necho done");
+    expect(shellCode('cat > a.py <<EOF\nx = 1\nEOF')).toBe('cat > a.py <<HEREDOC');
+  });
+
+  it('drops commit messages', () => {
+    expect(shellCode('git commit -m "run pytest | tail" && git push')).toBe('git commit -m "" && git push');
+  });
+
+  it('does not count a script in a heredoc as a test run', () => {
+    expect(classifyCommand("python - <<'EOF'\nimport subprocess\nsubprocess.run(['pytest'])\nEOF")).not.toContain('test');
   });
 });

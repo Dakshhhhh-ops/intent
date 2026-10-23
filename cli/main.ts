@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { analyze, RULE_INFO } from '../src/core/analyze';
 import { parseTrace } from '../src/core/parse/detect';
+import { slimBytes } from '../src/core/parse/slim';
 import { toIntentTrace } from '../src/core/parse/intentTrace';
 import { formatDuration, toMarkdown } from '../src/core/report/markdown';
 import type { Severity } from '../src/core/types';
@@ -92,7 +93,8 @@ function fail(msg: string): never {
 }
 
 function load(path: string) {
-  const text = readFileSync(path, 'utf8');
+  // Read as bytes and slim in chunks: some sessions are bigger than the largest possible string.
+  const text = slimBytes(readFileSync(path));
   const trace = parseTrace(text, basename(path));
   return { trace, analysis: analyze(trace) };
 }

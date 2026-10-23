@@ -1,6 +1,7 @@
 import type { EditInfo, Step, Trace } from '../types';
 import { classifyCommand, shellReadTarget, shellReadTargets, shellWriteTargets } from '../analyze/commands';
 import { redact } from '../redact';
+import { slimLine } from './slim';
 import { countLines, countPatch, hash, oneLine, parseTime, relPath, stripAnsi, truncate } from '../util';
 
 // Codex CLI writes ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl.
@@ -25,8 +26,10 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line) continue;
+    const slim = slimLine(line);
+    if (slim === null) continue;
     try {
-      records.push(JSON.parse(line));
+      records.push(JSON.parse(slim));
     } catch {
       bad++;
     }

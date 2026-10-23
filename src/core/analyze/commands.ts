@@ -40,8 +40,18 @@ const RULES: [CommandCategory, RegExp][] = [
   ],
 ];
 
+/**
+ * The shell code of a command line, without heredoc bodies or commit messages. A Python script fed
+ * through `<<EOF` or a commit message that mentions "pytest" is not a command that ran.
+ */
+export function shellCode(cmd: string): string {
+  return cmd
+    .replace(/<<-?\s*(['"]?)([\w.-]+)\1([^\n]*)\n[\s\S]*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)/g, (_m, _q, _tag, rest: string) => `<<HEREDOC${rest}`)
+    .replace(/(\s-[mF]\s*|\s--message[= ])("(?:[^"\\]|\\.)*"|'[^']*')/g, '$1""');
+}
+
 export function classifyCommand(cmd: string): CommandCategory[] {
-  const c = cmd.trim();
+  const c = shellCode(cmd).trim();
   const cats: CommandCategory[] = [];
   for (const [cat, re] of RULES) {
     if (re.test(c)) cats.push(cat);
@@ -74,6 +84,9 @@ const FAIL_PATTERNS: RegExp[] = [
 
 const PASS_ZERO = /\b0\s+(failed|failing|failures|errors)\b/gi;
 
+/** ESLint's summary when there are only warnings: "✖ 12 problems (0 errors, 12 warnings)". */
+const WARNINGS_ONLY = /^.*\b\d+\s+problems?\s+\(0 errors?,.*$/gim;
+
 /** "tests 6 … pass 4" (node:test / TAP) — fewer passes than tests means something failed or was hidden. */
 function countsShowFailure(output: string): boolean {
   const total = output.match(/^\s*(?:#|ℹ)\s*tests\s+(\d+)/m);
@@ -87,7 +100,7 @@ function countsShowFailure(output: string): boolean {
 /** True when a command's output clearly reports failure even if the exit code was masked. */
 export function outputLooksFailed(output: string): boolean {
   if (!output) return false;
-  const cleaned = output.replace(PASS_ZERO, '');
+  const cleaned = output.replace(WARNINGS_ONLY, '').replace(PASS_ZERO, '');
   return FAIL_PATTERNS.some((re) => re.test(cleaned)) || countsShowFailure(output);
 }
 
@@ -103,6 +116,7 @@ export function partialTestFilter(cmd: string): string | null {
 
 /** Exit code was hidden by a pipe or `|| true`. */
 export function masksExitCode(cmd: string): boolean {
+  cmd = shellCode(cmd);
   return /\|\s*(head|tail|grep|tee|Select-Object|select|more|less|sort|wc)\b|\|\|\s*(true|exit 0|:)\b|;\s*exit\s+0\b|2>\s*\/dev\/null\s*\|/i.test(cmd);
 }
 

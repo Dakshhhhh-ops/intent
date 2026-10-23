@@ -2,7 +2,7 @@ import { diffArrays } from 'diff';
 import type { Claim, FileChange, Finding, RuleId, Severity, Step } from '../types';
 import { secretKinds } from '../redact';
 import { basename, isDocFile, isTestFile, oneLine, splitLines, truncate } from '../util';
-import { isVerify, masksExitCode, outputLooksFailed } from './commands';
+import { isVerify, masksExitCode, outputLooksFailed, shellCode } from './commands';
 
 // Deterministic review rules. Each one looks at the normalized steps and the
 // reconstructed files and returns plain-language findings linked to steps.
@@ -229,65 +229,116 @@ const failureLoop: Rule = ({ steps }) => {
 
 // ------------------------------------------------------------ silenced errors
 
-const SILENCERS: [RegExp, string][] = [
-  [/@ts-(ignore|nocheck)\b/, '@ts-ignore'],
-  [/@ts-expect-error\b/, '@ts-expect-error'],
-  [/eslint-disable/, 'eslint-disable'],
-  [/#\s*type:\s*ignore/, '# type: ignore'],
-  [/#\s*noqa\b/, '# noqa'],
-  [/#\s*pylint:\s*disable/, 'pylint: disable'],
-  [/\bexcept(\s+\w+(\s+as\s+\w+)?)?\s*:\s*pass\b/, 'except: pass'],
-  [/\bcatch\s*(\(\s*\w*\s*\))?\s*\{\s*\}/, 'empty catch'],
-  [/\.catch\(\s*\(\s*\w*\s*\)\s*=>\s*(\{\s*\}|null|undefined)\s*\)/, 'swallowed promise error'],
-  [/\bas\s+any\b/, '`as any`'],
-  [/:\s*any\b/, '`any` type'],
-  [/\/\/\s*nolint/, 'nolint'],
-  [/#\[allow\(/, '#[allow]'],
-  [/@SuppressWarnings/, '@SuppressWarnings'],
-  [/continue-on-error:\s*true/, 'continue-on-error'],
-  [/--passWithNoTests/, '--passWithNoTests'],
+type CheckKind = 'typecheck' | 'lint' | 'any';
+
+interface Silencer {
+  re: RegExp;
+  label: string;
+  /** Which kind of failing check this would hide. */
+  hides: CheckKind;
+  severity: Severity;
+  /** Only counts in these files (a `: any` in Python is not a TypeScript escape hatch). */
+  ext?: RegExp;
+}
+
+const JS_TS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|svelte|astro)$/i;
+const PY = /\.pyi?$/i;
+
+const SILENCERS: Silencer[] = [
+  { re: /@ts-(ignore|nocheck)\b/, label: '@ts-ignore', hides: 'typecheck', severity: 'medium', ext: JS_TS },
+  { re: /@ts-expect-error\b/, label: '@ts-expect-error', hides: 'typecheck', severity: 'low', ext: JS_TS },
+  { re: /eslint-disable/, label: 'eslint-disable', hides: 'lint', severity: 'medium', ext: JS_TS },
+  { re: /\bas\s+any\b/, label: '`as any`', hides: 'typecheck', severity: 'low', ext: JS_TS },
+  { re: /:\s*any\b/, label: '`any` type', hides: 'typecheck', severity: 'low', ext: JS_TS },
+  { re: /\.catch\(\s*\(\s*\w*\s*\)\s*=>\s*(\{\s*\}|null|undefined)\s*\)/, label: 'swallowed promise error', hides: 'any', severity: 'medium', ext: JS_TS },
+  { re: /\bcatch\s*(\(\s*\w*\s*\))?\s*\{\s*\}/, label: 'empty catch', hides: 'any', severity: 'medium' },
+  { re: /#\s*type:\s*ignore/, label: '# type: ignore', hides: 'typecheck', severity: 'low', ext: PY },
+  { re: /#\s*noqa\b/, label: '# noqa', hides: 'lint', severity: 'low', ext: PY },
+  { re: /#\s*pylint:\s*disable/, label: 'pylint: disable', hides: 'lint', severity: 'low', ext: PY },
+  { re: /\bexcept(\s+\w+(\s+as\s+\w+)?)?\s*:\s*pass\b/, label: 'except: pass', hides: 'any', severity: 'medium', ext: PY },
+  { re: /\/\/\s*nolint/, label: 'nolint', hides: 'lint', severity: 'low', ext: /\.go$/i },
+  { re: /#\[allow\(/, label: '#[allow]', hides: 'lint', severity: 'low', ext: /\.rs$/i },
+  { re: /@SuppressWarnings/, label: '@SuppressWarnings', hides: 'lint', severity: 'low', ext: /\.(java|kt)$/i },
+  { re: /continue-on-error:\s*true/, label: 'continue-on-error', hides: 'any', severity: 'medium', ext: /\.ya?ml$/i },
+  { re: /--passWithNoTests/, label: '--passWithNoTests', hides: 'any', severity: 'medium' },
 ];
 
+const EXCEPT_PASS: Silencer = SILENCERS.find((s) => s.label === 'except: pass')!;
+const SEV_ORDER: Record<Severity, number> = { high: 3, medium: 2, low: 1, info: 0 };
+
+/** Outside the project: absolute paths, which the parsers only keep for scratch and temp files. */
+const outsideProject = (p: string) => /^([a-zA-Z]:)?[\\/]/.test(p);
+
 const silencedErrors: Rule = ({ steps }) => {
-  const byFile = new Map<string, { steps: Set<number>; kinds: Set<string> }>();
+  const byFile = new Map<string, { steps: Set<number>; kinds: Set<string>; severity: Severity; after?: string }>();
+  // The most recent failing check of each kind, so a suppression added right after it reads as intent.
+  const failing: Partial<Record<Exclude<CheckKind, 'any'>, string>> = {};
   for (const s of steps) {
-    if (!s.edit) continue;
+    if (s.command && isVerify(s.command.categories)) {
+      const bad = s.command.failed || outputLooksFailed(s.command.output) ? truncate(oneLine(s.command.cmd), 60) : undefined;
+      const cats = s.command.categories;
+      if (cats.includes('typecheck') || cats.includes('build')) failing.typecheck = bad;
+      if (cats.includes('lint')) failing.lint = bad;
+      continue;
+    }
+    if (!s.edit || outsideProject(s.edit.path)) continue;
+    const path = s.edit.path;
     const { added, removed } = lineDelta(s);
-    for (const [re, label] of SILENCERS) {
-      const n = added.filter((l) => re.test(l)).length - removed.filter((l) => re.test(l)).length;
-      if (n > 0) {
-        const e = byFile.get(s.edit.path) ?? { steps: new Set(), kinds: new Set() };
-        e.steps.add(s.id);
-        e.kinds.add(label);
-        byFile.set(s.edit.path, e);
-      }
+    const hits: Silencer[] = [];
+    for (const sil of SILENCERS) {
+      if (sil.ext && !sil.ext.test(path)) continue;
+      const n = added.filter((l) => sil.re.test(l)).length - removed.filter((l) => sil.re.test(l)).length;
+      if (n > 0) hits.push(sil);
     }
     // Python: "except ...:" followed by "pass" on the next line.
-    for (let i = 0; i < added.length - 1; i++) {
-      if (/^\s*except\b.*:\s*$/.test(added[i]) && /^\s*pass\s*$/.test(added[i + 1])) {
-        const e = byFile.get(s.edit.path) ?? { steps: new Set(), kinds: new Set() };
-        e.steps.add(s.id);
-        e.kinds.add('except: pass');
-        byFile.set(s.edit.path, e);
+    if (PY.test(path)) {
+      for (let i = 0; i < added.length - 1; i++) {
+        if (/^\s*except\b.*:\s*$/.test(added[i]) && /^\s*pass\s*$/.test(added[i + 1])) hits.push(EXCEPT_PASS);
       }
     }
+    if (!hits.length) continue;
+    const e = byFile.get(path) ?? { steps: new Set<number>(), kinds: new Set<string>(), severity: 'low' as Severity };
+    e.steps.add(s.id);
+    for (const h of hits) {
+      e.kinds.add(h.label);
+      const after = h.hides === 'any' ? (failing.typecheck ?? failing.lint ?? lastFailingTest(steps, s.id)) : failing[h.hides];
+      const sev: Severity = after ? 'high' : h.severity;
+      if (SEV_ORDER[sev] > SEV_ORDER[e.severity]) e.severity = sev;
+      if (after && !e.after) e.after = after;
+    }
+    byFile.set(path, e);
   }
   return [...byFile].map(([path, e]) => ({
     rule: 'silenced-errors' as RuleId,
-    severity: 'medium' as Severity,
+    severity: e.severity,
     title: `Errors silenced in ${basename(path)}`,
-    detail: `Added ${[...e.kinds].join(', ')} in ${path}. These make warnings or failures disappear without fixing them.`,
+    detail: e.after
+      ? `Added ${[...e.kinds].join(', ')} in ${path} right after \`${e.after}\` failed. The check may now pass because the problem is hidden, not fixed.`
+      : `Added ${[...e.kinds].join(', ')} in ${path}. These make warnings or failures disappear without fixing them.`,
     steps: [...e.steps],
     files: [path],
   }));
 };
 
+/** The last test command before a step, if it failed. */
+function lastFailingTest(steps: Step[], before: number): string | undefined {
+  for (let i = before - 1; i >= 0; i--) {
+    const c = steps[i].command;
+    if (!c || !c.categories.includes('test')) continue;
+    return c.failed || outputLooksFailed(c.output) ? truncate(oneLine(c.cmd), 60) : undefined;
+  }
+  return undefined;
+}
+
 // ------------------------------------------------------------ risky commands
 
+const RECURSIVE_RM = /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\b/;
+const FORCE_REMOVE_ITEM = /\bRemove-Item\b[^|;]*-Recurse\b[^|;]*-Force|\bRemove-Item\b[^|;]*-Force\b[^|;]*-Recurse/i;
+
 const RISKY: [RegExp, Severity, string][] = [
-  [/\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\b\s+(\/|~|\*|\$HOME|\.\s*$)/, 'high', 'deleted a broad path recursively'],
-  [/\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\b/, 'medium', 'force-deleted files recursively'],
-  [/\bRemove-Item\b[^|;]*-Recurse\b[^|;]*-Force|\bRemove-Item\b[^|;]*-Force\b[^|;]*-Recurse/i, 'medium', 'force-deleted files recursively'],
+  [/\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\b\s+["']?(\/|\/\*|~\/?|\*|\$HOME\/?|\.\/?)["']?(?=\s|$|;|&|\|)/, 'high', 'deleted a broad path recursively'],
+  [RECURSIVE_RM, 'medium', 'force-deleted files recursively'],
+  [FORCE_REMOVE_ITEM, 'medium', 'force-deleted files recursively'],
   [/\bgit\s+push\b[^|;&]*(\s--force\b|\s-f\b|--force-with-lease)/, 'high', 'force-pushed'],
   [/\bgit\s+reset\s+--hard\b/, 'high', 'hard-reset the working tree'],
   [/\bgit\s+clean\s+-[a-zA-Z]*f/, 'medium', 'deleted untracked files'],
@@ -296,19 +347,58 @@ const RISKY: [RegExp, Severity, string][] = [
   [/\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b|\biwr\b[^|]*\|\s*iex\b|Invoke-Expression/i, 'high', 'piped a download straight into a shell'],
   [/\bchmod\s+(-R\s+)?777\b/, 'medium', 'made files world-writable'],
   [/\bDROP\s+(TABLE|DATABASE|SCHEMA)\b|\bTRUNCATE\s+TABLE\b/i, 'high', 'dropped database objects'],
-  [/\bsudo\b/, 'medium', 'used sudo'],
+  [/(^|[\s;&|(])sudo\s/, 'medium', 'used sudo'],
   [/\b(npm|pnpm|yarn)\s+publish\b|\bcargo publish\b|\btwine upload\b/, 'high', 'published a package'],
   [/\bgit\s+push\b/, 'low', 'pushed to a remote'],
   [/\bkubectl\s+(delete|apply)\b|\bterraform\s+(apply|destroy)\b/, 'high', 'changed live infrastructure'],
 ];
+
+/** Build output, dependency folders, caches and temp or scratch locations: deleting them is housekeeping. */
+const DISPOSABLE = /(^|\/)(node_modules|dist(-[\w-]+)?|build|out|\.next|\.nuxt|\.svelte-kit|\.output|coverage|__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.turbo|\.parcel-cache|\.cache|\.vite|target|tmp|temp|\.tmp[\w.-]*)(\/|$)|scratch|\/Temp\/|^\/tmp\b|^\$\{?(TMPDIR|TEMP|TMP|RUNNER_TEMP)\b|\$env:(TEMP|TMP)\b|^%TEMP%/i;
+
+function shellWords(seg: string): string[] {
+  const out: string[] = [];
+  for (const m of seg.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
+
+/** What a recursive delete removes, with simple `X=...` / `$x = "..."` variables filled in. Null when unclear. */
+export function deleteTargets(code: string): string[] | null {
+  const vars = new Map<string, string>();
+  for (const m of code.matchAll(/(?:^|[\s;&(])\$?([A-Za-z_]\w*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/g)) vars.set(m[1], m[2] ?? m[3] ?? m[4] ?? '');
+  const expand = (t: string) => t.replace(/\$\{?([A-Za-z_]\w*)\}?/g, (all, v: string) => vars.get(v) ?? all);
+  const targets: string[] = [];
+  for (const seg of code.split(/&&|\|\||[;|\n]/)) {
+    const w = shellWords(seg.trim());
+    if (!w.length) continue;
+    const cmd = w[0].toLowerCase();
+    if (cmd === 'rm' && RECURSIVE_RM.test(seg)) {
+      targets.push(...w.slice(1).filter((x) => !x.startsWith('-')).map(expand));
+    } else if (cmd === 'remove-item' && FORCE_REMOVE_ITEM.test(seg)) {
+      for (let i = 1; i < w.length; i++) {
+        const x = w[i];
+        if (/^-(Path|LiteralPath)$/i.test(x)) targets.push(expand(w[++i] ?? ''));
+        else if (/^-(ErrorAction|Exclude|Include|Filter)$/i.test(x)) i++;
+        else if (!x.startsWith('-')) targets.push(expand(x));
+      }
+    }
+  }
+  return targets.length ? targets : null;
+}
 
 const riskyCommand: Rule = ({ steps }) => {
   const out: Omit<Finding, 'id'>[] = [];
   for (const s of steps) {
     if (!s.command) continue;
     const cmd = s.command.cmd;
-    const hit = RISKY.find(([re]) => re.test(cmd));
+    const code = shellCode(cmd);
+    const hit = RISKY.find(([re]) => re.test(code));
     if (!hit) continue;
+    if (hit[2] === 'force-deleted files recursively') {
+      const targets = deleteTargets(code);
+      // Paths are compared with forward slashes, so Windows paths match the same patterns.
+      if (targets && targets.every((t) => DISPOSABLE.test(t.replace(/\\/g, '/')))) continue;
+    }
     out.push({
       rule: 'risky-command',
       severity: hit[1],
@@ -565,11 +655,38 @@ export const RULE_INFO: Record<RuleId, { name: string; why: string }> = {
   'masked-exit-code': { name: 'Masked exit code', why: 'A pipe can make a failing check look like it passed.' },
 };
 
+/**
+ * The same finding at many steps (every `git push`, every piped test run) becomes one finding that
+ * lists them all, so a long session reads as a short review instead of hundreds of repeats.
+ */
+export function mergeRepeats(all: Omit<Finding, 'id'>[]): Omit<Finding, 'id'>[] {
+  const groups = new Map<string, Omit<Finding, 'id'>[]>();
+  for (const f of all) {
+    const key = `${f.rule}\u0000${f.severity}\u0000${f.title}`;
+    const g = groups.get(key);
+    if (g) g.push(f);
+    else groups.set(key, [f]);
+  }
+  return [...groups.values()].map((g) => {
+    if (g.length === 1) return g[0];
+    const [first, ...rest] = g;
+    const later = [...new Set(rest.map((f) => f.steps[0]).filter((x) => x !== undefined))];
+    const where = later.length > 6 ? `${later.slice(0, 6).map(stepRef).join(', ')} and ${later.length - 6} more` : later.map(stepRef).join(', ');
+    return {
+      ...first,
+      title: `${first.title} (${g.length} times)`,
+      detail: `${first.detail} The same happened at ${where}.`,
+      steps: g.flatMap((f) => f.steps),
+      files: [...new Set(g.flatMap((f) => f.files))],
+    };
+  });
+}
+
 export function runRules(ctx: RuleContext): Finding[] {
   const order: Record<Severity, number> = { high: 0, medium: 1, low: 2, info: 3 };
   const all: Omit<Finding, 'id'>[] = [];
   for (const rule of Object.values(RULES)) all.push(...rule(ctx));
-  return all
+  return mergeRepeats(all)
     .sort((a, b) => order[a.severity] - order[b.severity] || (a.steps[0] ?? 0) - (b.steps[0] ?? 0))
     .map((f, i) => ({ ...f, id: `f${i}`, steps: [...new Set(f.steps)].sort((a, b) => a - b) }));
 }

@@ -73,9 +73,16 @@ function computeStats(trace: Trace, filesChanged: number, filesRead: number): St
     tokensOut += x.usage.output;
     tokensCached += x.usage.cached;
   }
-  const times = s.map((x) => x.t).filter((t): t is number => t !== null);
-  const start = trace.startedAt ?? (times.length ? Math.min(...times) : null);
-  const end = trace.endedAt ?? (times.length ? Math.max(...times) : null);
+  // A loop, not Math.min(...times): spreading a very long run overflows the call stack.
+  let first: number | null = null;
+  let lastT: number | null = null;
+  for (const x of s) {
+    if (x.t === null) continue;
+    if (first === null || x.t < first) first = x.t;
+    if (lastT === null || x.t > lastT) lastT = x.t;
+  }
+  const start = trace.startedAt ?? first;
+  const end = trace.endedAt ?? lastT;
   let added = 0;
   let removed = 0;
   for (const x of s) {

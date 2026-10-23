@@ -12,6 +12,8 @@ const REVEAL = [
   '.home .session-row',
   '.home .footer',
   '.fx-story-step',
+  '.fx-ticker',
+  '.fx-rail-head',
   '.brief-hero',
 ].join(',');
 
@@ -114,7 +116,9 @@ export function startEnhancer(onHomeChange: (home: boolean) => void): () => void
       const max = document.documentElement.scrollHeight - innerHeight;
       const p = max > 0 ? Math.min(1, scrollY / max) : 0;
       bar.style.transform = `scaleX(${p})`;
-      document.body.style.setProperty('--fx-scroll', String(scrollY));
+      // Pause looping hero animations once they are off screen: they would keep repainting.
+      document.body.classList.toggle('fx-hero-off', scrollY > innerHeight * 0.9);
+      document.body.classList.toggle('fx-deep', scrollY > innerHeight * 1.8);
     });
   };
   addEventListener('scroll', onScroll, { passive: true });

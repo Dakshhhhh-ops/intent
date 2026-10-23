@@ -4,7 +4,10 @@ import { parseTrace } from '../core/parse/detect';
 import type { Step } from '../core/types';
 import { SAMPLES } from '../samples';
 import type { CliSession } from './App';
+import { ChecksRail } from './fx/ChecksRail';
+import { ClaimTicker } from './fx/ClaimTicker';
 import { ScrollStory } from './fx/ScrollStory';
+import { StatsBand } from './fx/StatsBand';
 import { Icon } from './Icon';
 
 function tapeColor(s: Step): string {
@@ -143,6 +146,8 @@ export function Home({
         </div>
       </section>
 
+      <ClaimTicker />
+
       {sessions && (
         <>
           <div className="section-title">
@@ -246,6 +251,8 @@ export function Home({
 
       <ScrollStory />
 
+      <ChecksRail />
+
       <div className="section-title">
         <h2>Use it where you work</h2>
         <p>One command, or one line in CI</p>
@@ -277,6 +284,8 @@ export function Home({
           <span className="g">✓</span> wrote replay.html <span className="d">(self-contained, secrets masked)</span>
         </div>
       </div>
+
+      <StatsBand />
 
       <footer className="footer">
         <span>Intent Replay · MIT licensed · reads Claude Code and Codex CLI logs, plus the open Intent Trace format</span>

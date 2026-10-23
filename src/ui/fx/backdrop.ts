@@ -80,6 +80,9 @@ export function startBackdrop(canvas: HTMLCanvasElement, isActive: () => boolean
   const cur = { mx: 0, my: 0, sy: 0 };
   let last = performance.now();
   let spin = 0;
+  let visible = true;
+  let lastDraw = 0;
+  const P = new Float64Array(12); // scratch space for projected points, reused every frame
 
   const readColors = () => {
     const cs = getComputedStyle(document.documentElement);
@@ -116,7 +119,17 @@ export function startBackdrop(canvas: HTMLCanvasElement, isActive: () => boolean
     cur.mx += (target.mx - cur.mx) * k;
     cur.my += (target.my - cur.my) * k;
     cur.sy += (target.sy - cur.sy) * k;
-    draw();
+    // About 30 frames a second is plenty for a slow spin and halves the cost.
+    if (reduce.matches || now - lastDraw > 30) {
+      lastDraw = now;
+      draw();
+    }
+    // Scrolled past the hero and settled: stop the loop until the page scrolls back up.
+    const settled = Math.abs(target.sy - cur.sy) < 1 && Math.abs(target.mx - cur.mx) < 0.01;
+    if (!visible && settled) {
+      running = false;
+      return;
+    }
     if (running && !reduce.matches) raf = requestAnimationFrame(frame);
   };
 
@@ -140,94 +153,81 @@ export function startBackdrop(canvas: HTMLCanvasElement, isActive: () => boolean
       sinX = Math.sin(rx),
       cosZ = Math.cos(rz),
       sinZ = Math.sin(rz);
-    const fade = Math.max(0.3, 1 - scroll * 0.55); // stays faintly visible further down the page
+    // Fades out over the first screen and a half of scrolling; past that nothing is drawn.
+    const fade = Math.max(0, 1 - scroll * 0.6);
     const base = (dark ? 0.95 : 0.7) * (narrow ? 0.55 : 1) * fade;
-    if (base <= 0.01) return;
+    visible = base > 0.01;
+    if (!visible) return;
 
-    const project = (x: number, y: number, z: number) => {
-      // rotate Y, then X, then Z, then perspective
+    // Distant stars drift with the pointer more slowly than the helix: cheap parallax.
+    // Drawn as three batched paths (one per twinkle level) instead of one call per star.
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = colors.text;
+    for (let lvl = 0; lvl < 3; lvl++) {
+      ctx.beginPath();
+      for (let i = lvl; i < stars.length; i += 3) {
+        const st = stars[i];
+        const px = w * 0.5 + (st.x / 7) * w * 0.55 - cur.mx * (6 + st.z) * 3;
+        let py = h * 0.5 + (st.y / 6) * h * 0.55 - cur.my * (6 + st.z) * 2 - scroll * h * (0.15 + (st.z + 5) * 0.02);
+        py = ((py % (h + 40)) + h + 40) % (h + 40) - 20;
+        const r = 0.6 + (st.z + 5) * 0.09;
+        ctx.rect(px, py, r, r);
+      }
+      const tw = 0.5 + 0.5 * Math.sin(spin * 5 + lvl * 2.1);
+      ctx.globalAlpha = base * (0.12 + 0.25 * tw) * (dark ? 1 : 0.6);
+      ctx.fill();
+    }
+
+    // Helix. In dark mode the glow blend makes draw order irrelevant, and in light mode the
+    // bars are translucent enough that skipping a depth sort is invisible, so no sorting.
+    const R = 1.25;
+    const proj = (x: number, y: number, z: number, o: number) => {
       let x1 = x * cosY + z * sinY;
       let z1 = -x * sinY + z * cosY;
       let y1 = y * cosX - z1 * sinX;
       z1 = y * sinX + z1 * cosX;
       const x2 = x1 * cosZ - y1 * sinZ;
       y1 = x1 * sinZ + y1 * cosZ;
-      x1 = x2;
-      const s = camZ / (camZ + z1);
-      return { x: cx + x1 * scale * s, y: cy + y1 * scale * s, s, z: z1 };
+      const sc = camZ / (camZ + z1);
+      P[o] = cx + x2 * scale * sc;
+      P[o + 1] = cy + y1 * scale * sc;
+      P[o + 2] = sc;
+      P[o + 3] = z1;
     };
-
-    // Distant stars drift with the pointer more slowly than the helix: cheap parallax.
-    ctx.globalCompositeOperation = 'source-over';
-    for (const st of stars) {
-      const px = w * 0.5 + (st.x / 7) * w * 0.55 - cur.mx * (6 + st.z) * 3;
-      let py = h * 0.5 + (st.y / 6) * h * 0.55 - cur.my * (6 + st.z) * 2 - scroll * h * (0.15 + (st.z + 5) * 0.02);
-      py = ((py % (h + 40)) + h + 40) % (h + 40) - 20;
-      const tw = 0.5 + 0.5 * Math.sin(spin * 6 + st.tw);
-      ctx.globalAlpha = base * (0.12 + 0.25 * tw) * (dark ? 1 : 0.6);
-      ctx.fillStyle = colors.text;
-      const r = 0.6 + (st.z + 5) * 0.09;
-      ctx.fillRect(px, py, r, r);
-    }
-
-    type Seg = { z: number; draw: () => void };
-    const segs: Seg[] = [];
-    const R = 1.25;
+    ctx.lineCap = 'round';
+    ctx.globalCompositeOperation = dark ? 'lighter' : 'source-over';
     for (let i = 0; i < bars.length; i++) {
       const b = bars[i];
       const y = b.y + lift;
       if (y < -6 || y > 6) continue;
       const ca = Math.cos(b.a),
         sa = Math.sin(b.a);
-      const p0 = project(ca * R, y, sa * R);
-      const p1 = project(ca * (R + b.len), y, sa * (R + b.len));
+      proj(ca * R, y, sa * R, 0);
+      proj(ca * (R + b.len), y, sa * (R + b.len), 4);
       // The opposite strand: a dot at a + PI, joined by a faint rung every few steps.
-      const q = project(-ca * R, y, -sa * R);
-      const z = (p0.z + p1.z) / 2;
-      const depth = Math.max(0, Math.min(1, (3 - z) / 6));
-      const col = colors[b.kind];
-      segs.push({
-        z,
-        draw: () => {
-          ctx.globalAlpha = base * (0.25 + 0.75 * depth);
-          ctx.strokeStyle = col;
-          ctx.lineWidth = (b.kind === 'fail' ? 3.2 : 2.4) * p0.s;
-          ctx.beginPath();
-          ctx.moveTo(p0.x, p0.y);
-          ctx.lineTo(p1.x, p1.y);
-          ctx.stroke();
-        },
-      });
-      segs.push({
-        z: q.z,
-        draw: () => {
-          const d = Math.max(0, Math.min(1, (3 - q.z) / 6));
-          ctx.globalAlpha = base * (0.15 + 0.5 * d);
-          ctx.fillStyle = colors.accent;
-          ctx.beginPath();
-          ctx.arc(q.x, q.y, 1.6 * q.s, 0, Math.PI * 2);
-          ctx.fill();
-        },
-      });
+      proj(-ca * R, y, -sa * R, 8);
       if (i % 5 === 0) {
-        segs.push({
-          z: (p0.z + q.z) / 2 + 0.01,
-          draw: () => {
-            ctx.globalAlpha = base * 0.1;
-            ctx.strokeStyle = colors.accent;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(p0.x, p0.y);
-            ctx.lineTo(q.x, q.y);
-            ctx.stroke();
-          },
-        });
+        ctx.globalAlpha = base * 0.1;
+        ctx.strokeStyle = colors.accent;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(P[0], P[1]);
+        ctx.lineTo(P[8], P[9]);
+        ctx.stroke();
       }
+      const dq = Math.max(0, Math.min(1, (3 - P[11]) / 6));
+      ctx.globalAlpha = base * (0.15 + 0.5 * dq);
+      ctx.fillStyle = colors.accent;
+      ctx.fillRect(P[8] - 1.4 * P[10], P[9] - 1.4 * P[10], 2.8 * P[10], 2.8 * P[10]);
+      const depth = Math.max(0, Math.min(1, (3 - (P[3] + P[7]) / 2) / 6));
+      ctx.globalAlpha = base * (0.25 + 0.75 * depth);
+      ctx.strokeStyle = colors[b.kind];
+      ctx.lineWidth = (b.kind === 'fail' ? 3.2 : 2.4) * P[2];
+      ctx.beginPath();
+      ctx.moveTo(P[0], P[1]);
+      ctx.lineTo(P[4], P[5]);
+      ctx.stroke();
     }
-    segs.sort((a, b) => b.z - a.z);
-    ctx.lineCap = 'round';
-    ctx.globalCompositeOperation = dark ? 'lighter' : 'source-over';
-    for (const s of segs) s.draw();
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   };
@@ -259,6 +259,8 @@ export function startBackdrop(canvas: HTMLCanvasElement, isActive: () => boolean
   const onScroll = () => {
     target.sy = window.scrollY;
     if (reduce.matches && running) frame(performance.now());
+    // Wake up when scrolling back toward the hero.
+    else if (!running && window.scrollY < innerHeight * 1.8) sync();
   };
   const onResize = () => {
     resize();

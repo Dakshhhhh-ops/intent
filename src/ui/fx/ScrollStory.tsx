@@ -137,6 +137,7 @@ export function ScrollStory() {
       const travel = Math.max(1, r.height - innerHeight);
       const p = Math.min(1, Math.max(0, -r.top / travel));
       el.style.setProperty('--p', p.toFixed(4));
+      el.classList.toggle('live', r.bottom > 0 && r.top < innerHeight);
       setActive(Math.min(STEPS.length - 1, Math.floor(p * STEPS.length * 0.9999)));
     };
     const onScroll = () => {

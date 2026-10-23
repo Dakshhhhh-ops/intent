@@ -75,7 +75,13 @@
   background-size: 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: fx-shimmer 9s linear infinite;
+  animation: fx-shimmer 9s linear 3;
+}
+
+/* Looping hero animations stop when the hero is off screen. */
+.fx-hero-off .home-hero *,
+.fx-deep .fx-ticker-track {
+  animation-play-state: paused !important;
 }
 
 @keyframes fx-shimmer {
@@ -85,7 +91,7 @@
 }
 
 .fx-home .home .eyebrow svg {
-  animation: fx-rewind 3.6s cubic-bezier(0.6, 0, 0.3, 1) infinite;
+  animation: fx-rewind 3.6s cubic-bezier(0.6, 0, 0.3, 1) 4;
 }
 
 @keyframes fx-rewind {
@@ -257,6 +263,8 @@
 }
 
 .fx-story-steps {
+  /* Own stacking layer: the rail sits under the step badges even while steps animate in. */
+  isolation: isolate;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -276,7 +284,7 @@
   width: 2px;
   border-radius: 2px;
   background: var(--border);
-  z-index: 0;
+  z-index: -1;
 }
 
 .fx-story-steps::after {
@@ -610,21 +618,42 @@
 }
 
 .fx-dot {
+  position: relative;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 0 currentColor;
-  animation: fx-ping 1.8s ease-out infinite;
+}
+
+.fx-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+}
+
+/* Pulses only while its face is showing. Scale and fade stay on the compositor. */
+.fx-face.on .fx-dot::after {
+  animation: fx-ping 1.8s ease-out 4;
 }
 
 @keyframes fx-ping {
-  70% {
-    box-shadow: 0 0 0 7px transparent;
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
   }
+  80%,
   100% {
-    box-shadow: 0 0 0 0 transparent;
+    opacity: 0;
+    transform: scale(2.8);
   }
+}
+
+/* Nothing in the story animates while it is off screen. */
+.fx-story:not(.live) * {
+  animation-play-state: paused !important;
 }
 
 .fx-findings {
@@ -776,7 +805,7 @@
   .fx-home .home h1 em,
   .fx-home .home .eyebrow svg,
   .fx-home .home .dropzone .drop-icon,
-  .fx-dot {
+  .fx-dot::after {
     animation: none !important;
   }
 }

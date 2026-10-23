@@ -1,0 +1,54 @@
+{
+  "name": "intent-replay",
+  "version": "0.1.0",
+  "description": "Debug what an AI coding agent actually did. Replay a Claude Code or Codex run as a fact-checked decision trace.",
+  "license": "MIT",
+  "author": "Daksh",
+  "type": "module",
+  "bin": {
+    "intent-replay": "dist-cli/intent-replay.mjs"
+  },
+  "files": [
+    "dist",
+    "dist-cli",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": ["ai-agents", "claude-code", "codex", "debugging", "code-review", "replay", "audit"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dakshhhhh-ops/intent.git"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && npm run build:cli",
+    "build:web": "vite build",
+    "build:cli": "esbuild cli/main.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist-cli/intent-replay.mjs --banner:js=\"#!/usr/bin/env node\"",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "e2e": "playwright test"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "diff": "^9.0.0",
+    "esbuild": "^0.28.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.5",
+    "vite-plugin-singlefile": "^2.3.4",
+    "vitest": "^5.0.5"
+  }
+}

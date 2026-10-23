@@ -1,0 +1,26 @@
+# personal learning context (Devpost Learn)
+/devpost/learner-profile.md
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# deps / build output
+node_modules/
+dist/
+dist-cli/
+coverage/
+test-results/
+playwright-report/
+*.log
+
+# local skill-pack copies (the lock file is committed as proof of install)
+/.claude/
+/agent/
+/.agents/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

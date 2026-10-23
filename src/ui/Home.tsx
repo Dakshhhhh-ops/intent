@@ -4,6 +4,7 @@ import { parseTrace } from '../core/parse/detect';
 import type { Step } from '../core/types';
 import { SAMPLES } from '../samples';
 import type { CliSession } from './App';
+import { ScrollStory } from './fx/ScrollStory';
 import { Icon } from './Icon';
 
 function tapeColor(s: Step): string {
@@ -242,6 +243,8 @@ export function Home({
           <p>Scrub a timeline of every read, edit and command. Watch files light up, and catch weakened tests, blind edits, failure loops and risky commands.</p>
         </div>
       </div>
+
+      <ScrollStory />
 
       <div className="section-title">
         <h2>Use it where you work</h2>

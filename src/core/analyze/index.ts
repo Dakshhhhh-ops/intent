@@ -102,7 +102,8 @@ function computeStats(trace: Trace, filesChanged: number, filesRead: number): St
 
 function buildReview(findings: Analysis['findings'], files: Analysis['files']): ReviewItem[] {
   const items: ReviewItem[] = [];
-  for (const f of findings.filter((x) => x.severity === 'high' || x.severity === 'medium').slice(0, 6)) {
+  // Claims have their own panel; review-first lists everything else.
+  for (const f of findings.filter((x) => (x.severity === 'high' || x.severity === 'medium') && x.rule !== 'contradicted-claim').slice(0, 6)) {
     items.push({ title: f.title, why: f.detail, step: f.steps[f.steps.length - 1] ?? null, file: f.files[0], severity: f.severity });
   }
   const seen = new Set(items.map((i) => i.file).filter(Boolean));

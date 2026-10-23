@@ -134,7 +134,7 @@ export function Home({
               <b>Codex CLI</b> <code>~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl</code>
             </div>
             <div>
-              On Windows <code>~</code> is <code>C:\Users\&lt;you&gt;</code>. Or skip the hunting: <code>npx intent-replay</code>
+              On Windows <code>~</code> is <code>C:\Users\&lt;you&gt;</code>. Or skip the hunting: run <code>intent-replay</code> in your project
             </div>
           </div>
         </div>
@@ -188,8 +188,14 @@ export function Home({
                 <div className="sample-foot">
                   <span className="chip">{c.agent}</span>
                   <span className="chip">{c.steps} steps</span>
-                  <span className="chip">{c.files} files</span>
-                  {c.contradicted > 0 && <span className="chip high">{c.contradicted} claim contradicted</span>}
+                  <span className="chip">
+                    {c.files} file{c.files === 1 ? '' : 's'}
+                  </span>
+                  {c.contradicted > 0 && (
+                    <span className="chip high">
+                      {c.contradicted} claim{c.contradicted === 1 ? '' : 's'} contradicted
+                    </span>
+                  )}
                 </div>
               </button>
             ))}
@@ -231,27 +237,28 @@ export function Home({
       </div>
       <div className="cli-block">
         <div className="terminal">
-          <span className="p">$</span> npx intent-replay{'\n'}
+          <span className="p">$</span> npm i -g github:Dakshhhhh-ops/intent{'\n'}
+          <span className="p">$</span> intent-replay{'\n'}
           <span className="d">Sessions for ~/code/shop</span>
           {'\n'}
           {'  '}1 <span className="p">claude</span> <span className="d">2m ago </span> Fix the cart total rounding bug{'\n'}
           {'  '}2 <span className="g">codex </span> <span className="d">1h ago </span> Add CSV export to orders{'\n'}
           <span className="g">●</span> Intent Replay is running at http://127.0.0.1:4848/{'\n\n'}
-          <span className="p">$</span> npx intent-replay check latest{'\n'}
+          <span className="p">$</span> intent-replay check latest{'\n'}
           <span className="r">■ Needs review</span> <span className="d">3 high, 2 medium findings</span>
           {'\n'}
           {'  '}
-          <span className="r">contradicted</span> “All 6 tests pass.”{'\n'}
+          <span className="r">contradicted</span> “All tests pass.”{'\n'}
           {'  '}
           <span className="r">high  </span> Tests in cart.test.js were weakened
         </div>
         <div className="terminal">
           <span className="d"># .github/workflows/agent-review.yml</span>
-          {'\n'}- run: npx intent-replay report $AGENT_LOG <span className="y">--out</span> report.md{'\n'}
-          - run: npx intent-replay check $AGENT_LOG <span className="y">--fail-on</span> high{'\n\n'}
+          {'\n'}- run: npx -y github:Dakshhhhh-ops/intent report $AGENT_LOG <span className="y">--out</span> report.md{'\n'}
+          - run: npx -y github:Dakshhhhh-ops/intent check $AGENT_LOG <span className="y">--fail-on</span> high{'\n\n'}
           <span className="d"># or share one offline file with a reviewer</span>
           {'\n'}
-          <span className="p">$</span> npx intent-replay export latest <span className="y">-o</span> replay.html{'\n'}
+          <span className="p">$</span> intent-replay export latest <span className="y">-o</span> replay.html{'\n'}
           <span className="g">✓</span> wrote replay.html <span className="d">(self-contained, secrets masked)</span>
         </div>
       </div>

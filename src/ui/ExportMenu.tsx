@@ -36,6 +36,7 @@ function slug(s: string): string {
 export function buildReplayHtml(traceJson: string): string {
   const base = window.__IR_PRISTINE__ ?? `<!doctype html>${document.documentElement.outerHTML}`;
   const cleaned = base
+    .replace(/<html([^>]*?)\sdata-theme="[^"]*"/, '<html$1')
     .replace(/<script>window\.__INTENT_BOOT__=[\s\S]*?<\/script>/g, '')
     .replace(/<script id="intent-trace" type="application\/json">[\s\S]*?<\/script>/g, '');
   const inject = `<script>window.__INTENT_BOOT__={"embedded":true}</script><script id="intent-trace" type="application/json">${traceJson.replace(/</g, '\\u003c')}</script>`;

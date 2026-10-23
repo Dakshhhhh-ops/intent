@@ -26,7 +26,7 @@ describe('toMarkdown', () => {
     expect(md).toContain('### Findings');
     // File table uses the net diff (+1 −1); the header stats line sums per-edit counts (+2 −2).
     expect(md).toContain('| `src/math.ts` | +1 −1 | 2 | yes |');
-    expect(md).toContain('1 files changed (+2 −2)');
+    expect(md).toContain('1 file changed (+2 −2)');
     expect(md).toContain('<details><summary>How the run unfolded</summary>');
     expect(md).toContain('[open the replay](https://example.test/replay)');
   });

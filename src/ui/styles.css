@@ -1211,6 +1211,7 @@ button.chip:hover {
 }
 
 .review-item .t {
+  align-items: baseline;
   font-weight: 560;
   display: flex;
   align-items: center;

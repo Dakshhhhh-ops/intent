@@ -142,7 +142,9 @@ export function Brief() {
                 <span style={{ minWidth: 0 }}>
                   <span className="t">
                     <span className={`sev-dot ${r.severity}`} />
-                    <Rich text={r.title} />
+                    <span>
+                      <Rich text={r.title} />
+                    </span>
                   </span>
                   <span className="w">
                     <Rich text={r.why} />

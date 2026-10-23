@@ -143,7 +143,7 @@ function printSummary(path: string) {
   const { trace, analysis: a } = load(path);
   const v = a.verdict.level === 'risky' ? red : a.verdict.level === 'review' ? yellow : green;
   console.log(`${v('■')} ${bold(a.verdict.label)}  ${dim(a.verdict.summary)}`);
-  console.log(dim(`${trace.agentVersion ?? trace.source} · ${formatDuration(a.stats.durationMs)} · ${a.stats.steps} steps · ${a.stats.filesChanged} files changed`));
+  console.log(dim(`${trace.agentVersion ?? trace.source} · ${formatDuration(a.stats.durationMs)} · ${a.stats.steps} steps · ${a.stats.filesChanged} file${a.stats.filesChanged === 1 ? '' : 's'} changed`));
   for (const cl of a.claims) {
     const tag = cl.verdict === 'supported' ? green('supported   ') : cl.verdict === 'contradicted' ? red('contradicted') : yellow(cl.verdict.padEnd(12));
     console.log(`  ${tag} “${cl.text.slice(0, 90)}”`);

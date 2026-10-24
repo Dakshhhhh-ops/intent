@@ -91,3 +91,19 @@ describe('phases', () => {
     expect(phases[5].summary).toBe('Reported: “All tests pass.”');
   });
 });
+
+describe('report and Brief agree', () => {
+  it('lists the same chapters the Brief shows', async () => {
+    const { chapters } = await import('../src/core/analyze/chapters');
+    const { readFileSync } = await import('node:fs');
+    const { parseTrace } = await import('../src/core/parse/detect');
+    const { analyze } = await import('../src/core/analyze');
+    const { toMarkdown } = await import('../src/core/report/markdown');
+    const trace = parseTrace(readFileSync('examples/taskforge-handrail.intent.json', 'utf8'));
+    const a = analyze(trace);
+    const md = toMarkdown(trace, a);
+    const listed = md.split('\n').filter((l) => /^\d+\. \*\*/.test(l)).length;
+    expect(listed).toBe(chapters(a.phases, trace.steps).length);
+    expect(md).not.toContain('$SCRATCH/qa/tests');
+  });
+});

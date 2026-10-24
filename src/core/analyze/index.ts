@@ -118,7 +118,8 @@ function buildReview(findings: Analysis['findings'], files: Analysis['files']): 
   }
   const seen = new Set(items.map((i) => i.file).filter(Boolean));
   const ranked = [...files]
-    .filter((f) => !seen.has(f.path))
+    // The agent's scratch files are not what a reviewer has to read before merging.
+    .filter((f) => !seen.has(f.path) && !f.scratch)
     .sort((a, b) => b.flags.length - a.flags.length || b.added + b.removed - (a.added + a.removed));
   for (const f of ranked.slice(0, Math.max(0, 7 - items.length))) {
     const sev: Severity = f.flags.length ? 'medium' : 'info';

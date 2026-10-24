@@ -13,7 +13,7 @@ import { Findings } from './Findings';
 import { Header } from './Header';
 import { Home } from './Home';
 import { KeyboardHelp } from './KeyboardHelp';
-import { buildRun, NavContext, RunContext, type Nav, type RunData, type RunSource, type Tab } from './model';
+import { buildRun, focusStep, NavContext, RunContext, type Nav, type RunData, type RunSource, type Tab } from './model';
 import { Replay } from './Replay';
 import { RunHeader } from './RunHeader';
 
@@ -80,7 +80,7 @@ export function App() {
     const h = readHash();
     const lastStep = trace.steps.length - 1;
     setTabState(h.tab);
-    setStep(h.step !== null ? Math.min(Math.max(0, h.step), lastStep) : 0);
+    setStep(h.step !== null ? Math.min(Math.max(0, h.step), lastStep) : focusStep(data));
     setFile(h.file ?? data.analysis.files[0]?.path ?? null);
     if (source.kind === 'sample' && source.sampleId) {
       const u = new URL(location.href);

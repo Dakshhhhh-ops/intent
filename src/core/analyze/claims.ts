@@ -297,7 +297,20 @@ function evaluate(
       return { verdict: 'contradicted', explanation: `The last look at CI (step ${lastCi.id + 1}) shows a failing run${shaOf(sentence) ? ` for ${shaOf(sentence)}` : ''}.`, evidence: [lastCi.id] };
     }
     if (status === 'pass') {
-      return { verdict: 'supported', explanation: `Step ${lastCi.id + 1} looked at the CI run itself: every result it shows${shaOf(sentence) ? ` for ${shaOf(sentence)}` : ''} succeeded.`, evidence: [lastCi.id] };
+      // Say exactly what succeeded, and whether the run was still going.
+      const out = lastCi.command!.output;
+      const names = [...out.matchAll(/"name":\s*"([^"]+)"[^\n]*?"conclusion":\s*"success"|"conclusion":\s*"success"[^\n]*?"name":\s*"([^"]+)"/g)]
+        .map((m) => (m[1] ?? m[2]).replace(/^Run\s+/, ''))
+        .filter((n) => !/^(Set up job|actions\/|Post |Complete job)/i.test(n));
+      const pending = (out.match(/"conclusion":\s*null|\bin_progress\b|\bqueued\b/g) ?? []).length;
+      const shown = names.length > 4 ? [...names.slice(0, 4), `${names.length - 4} more`] : names;
+      const list = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown[0];
+      const what = names.length ? `${list} succeeded` : `the results it shows${shaOf(sentence) ? ` for ${shaOf(sentence)}` : ''} succeeded`;
+      return {
+        verdict: 'supported',
+        explanation: `Step ${lastCi.id + 1} looked at the CI run itself: ${what}, and nothing failed${pending ? `; the run was still in progress, so later steps had no result yet` : ''}.`,
+        evidence: [lastCi.id],
+      };
     }
     return {
       verdict: 'unverified',

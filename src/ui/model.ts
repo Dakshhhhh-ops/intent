@@ -156,3 +156,12 @@ const HOUSEKEEPING = new Set(['ToolSearch', 'ListAgents', 'SendMessage', 'TaskSt
 export function isHousekeeping(s: Step): boolean {
   return s.kind === 'tool' && !!s.tool && HOUSEKEEPING.has(s.tool);
 }
+
+/** Where a replay should open: the proof behind the worst claim, else the first high finding, else the start. */
+export function focusStep(run: RunData): number {
+  const order = { contradicted: 0, stale: 1, unverified: 2, supported: 3 } as const;
+  const worst = [...run.analysis.claims].sort((a, b) => order[a.verdict] - order[b.verdict])[0];
+  if (worst && worst.verdict === 'contradicted' && worst.evidence.length) return worst.evidence[0];
+  const high = run.analysis.findings.find((f) => f.severity === 'high' && f.steps.length);
+  return high ? high.steps[0] : 0;
+}

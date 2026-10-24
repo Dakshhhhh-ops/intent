@@ -1,5 +1,6 @@
 import type { Analysis, Claim, Trace } from '../types';
 import { RULE_INFO } from '../analyze/rules';
+import { chapters } from '../analyze/chapters';
 import { truncate } from '../util';
 
 // PR-ready Markdown. Paste it into a pull request, or let `intent-replay report` print it.
@@ -77,8 +78,9 @@ export function toMarkdown(trace: Trace, a: Analysis, opts: { link?: string } = 
   if (a.phases.length) {
     out.push('<details><summary>How the run unfolded</summary>');
     out.push('');
-    a.phases.forEach((p, i) => {
-      out.push(`${i + 1}. **${cap(p.kind)}** (steps ${p.from + 1}–${p.to + 1}): ${p.summary}`);
+    // The same chapters as the web Brief.
+    chapters(a.phases, trace.steps).forEach((c, i) => {
+      out.push(`${i + 1}. **${c.label}** (steps ${c.from + 1}–${c.to + 1}): ${c.summary}`);
     });
     out.push('');
     out.push('</details>');
@@ -95,8 +97,4 @@ function plural(n: number, w: string): string {
 
 function cell(s: string): string {
   return s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
-}
-
-function cap(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Claim, ClaimKind, Phase, PhaseKind, Severity, Step } from '../core/types';
-import { isVerify, outputLooksFailed } from '../core/analyze/commands';
-import { outsideProject } from '../core/util';
+import type { Claim, ClaimKind, Phase, Severity, Step } from '../core/types';
+import { chapters } from '../core/analyze/chapters';
 import { Evidence } from './Evidence';
 import { Icon } from './Icon';
-import { PHASE_LABEL, agentName, fmtOffset, useNav, useRun } from './model';
+import { PHASE_LABEL, agentName, fmtOffset, focusStep, useNav, useRun } from './model';
 import { Rich } from './Rich';
 import { kindColor } from './RunStrip';
 
@@ -85,6 +84,9 @@ export function Brief() {
   const task = trace.steps.find((s) => s.kind === 'prompt');
   const contradicted = a.claims.filter((c) => c.verdict === 'contradicted').length;
   const high = a.findings.filter((f) => f.severity === 'high').length;
+  const supported = a.claims.filter((c) => c.verdict === 'supported').length;
+  const lookAt = a.findings.filter((f) => f.severity !== 'info').length;
+  const focus = focusStep(run);
   const order: Record<Claim['verdict'], number> = { contradicted: 0, stale: 1, unverified: 2, supported: 3 };
   const claims = [...a.claims].sort((x, y) => order[x.verdict] - order[y.verdict] || y.step - x.step).slice(0, 8);
   // The hero quotes the punchiest claim: worst verdict first, then the shortest sentence.
@@ -165,16 +167,23 @@ export function Brief() {
           <Stat n={s.steps} label="steps" sub={s.durationMs !== null ? `in ${fmtOffset(s.durationMs).slice(1)}` : undefined} />
           <Stat n={s.filesChanged} label={s.filesChanged === 1 ? 'file changed' : 'files changed'} sub={`+${s.linesAdded} −${s.linesRemoved}`} />
           <Stat n={s.commands} label="commands" sub={s.commandsFailed ? `${s.commandsFailed} failed` : 'none failed'} tone={s.commandsFailed ? 'bad' : undefined} />
-          <Stat n={a.claims.length - contradicted} of={a.claims.length} label="claims hold up" sub={a.claims.length ? (contradicted ? `${contradicted} contradicted` : 'none contradicted') : 'none made'} tone={contradicted ? 'bad' : 'good'} />
-          <Stat n={a.findings.length} label={a.findings.length === 1 ? 'finding' : 'findings'} sub={high ? `${high} high` : 'none high'} tone={high ? 'bad' : undefined} />
+          {/* Only Supported claims hold up; unverified ones are not counted as holding. */}
+          <Stat
+            n={supported}
+            of={a.claims.length}
+            label="claims hold up"
+            sub={a.claims.length ? [contradicted ? `${contradicted} contradicted` : '', a.claims.length - supported - contradicted ? `${a.claims.length - supported - contradicted} unproven` : ''].filter(Boolean).join(', ') || 'all supported' : 'none made'}
+            tone={contradicted ? 'bad' : supported === a.claims.length ? 'good' : undefined}
+          />
+          <Stat n={lookAt} label={lookAt === 1 ? 'finding' : 'findings'} sub={high ? `${high} high` : 'none high'} tone={high ? 'bad' : undefined} />
           <div className="bv-actions">
-            <button className="cta cta-primary vf" onClick={() => nav.go(0)}>
-              <span>Replay the run</span>
+            <button className="cta cta-primary vf" onClick={() => nav.go(focus)}>
+              <span>{focus ? `Replay from #${focus + 1}` : 'Replay the run'}</span>
               <Icon name="play" size={14} />
             </button>
             <button className="cta vf" onClick={() => nav.setTab('findings')}>
               <span>
-                {a.findings.length} finding{a.findings.length === 1 ? '' : 's'}
+                {lookAt} finding{lookAt === 1 ? '' : 's'}
               </span>
               <Icon name="next" size={16} />
             </button>
@@ -442,66 +451,3 @@ function RunTape({ steps, phases, said, proof, tone, onGo }: { steps: Step[]; ph
   );
 }
 
-interface Chapter {
-  kind: PhaseKind;
-  label: string;
-  from: number;
-  to: number;
-  summary: string;
-  segs: { kind: PhaseKind; len: number }[];
-}
-
-const LOOP = new Set<PhaseKind>(['change', 'verify', 'repair']);
-
-/**
- * Phases as chapters. Three or more change/check phases in a row become one "Change ↔ check"
- * chapter, and on long runs chapters are grouped per instruction.
- */
-function chapters(phases: Phase[], steps: Step[]): Chapter[] {
-  const base: Chapter[] = [];
-  for (let i = 0; i < phases.length; ) {
-    let j = i;
-    while (j < phases.length && LOOP.has(phases[j].kind)) j++;
-    if (j - i >= 3) {
-      const group = phases.slice(i, j);
-      const from = group[0].from;
-      const to = group[group.length - 1].to;
-      const span = steps.slice(from, to + 1);
-      const files = new Set(span.filter((s) => s.edit && !outsideProject(s.edit.path)).map((s) => s.edit!.path)).size;
-      const checks = span.filter((s) => s.command && isVerify(s.command.categories));
-      const failed = checks.filter((s) => s.command!.failed || outputLooksFailed(s.command!.output)).length;
-      const cycles = Math.max(1, group.filter((p) => p.kind === 'verify').length);
-      base.push({
-        kind: 'change',
-        label: `Change ↔ check ×${cycles}`,
-        from,
-        to,
-        summary: `${files ? `Edited ${files} project file${files === 1 ? '' : 's'}` : 'Worked in scratch files only'} and ran ${checks.length} check${checks.length === 1 ? '' : 's'}${failed ? `, ${failed} failed` : ''}`,
-        segs: group.map((p) => ({ kind: p.kind, len: p.to - p.from + 1 })),
-      });
-      i = j;
-    } else {
-      const p = phases[i];
-      base.push({ kind: p.kind, label: PHASE_LABEL[p.kind], from: p.from, to: p.to, summary: p.summary, segs: [{ kind: p.kind, len: p.to - p.from + 1 }] });
-      i++;
-    }
-  }
-  if (base.length <= 14) return base;
-  const out: Chapter[] = [];
-  let cur: Chapter | null = null;
-  for (const c of base) {
-    if (c.kind === 'ask' || !cur) {
-      const prompt = steps[c.from]?.kind === 'prompt' ? steps[c.from] : undefined;
-      cur = { kind: 'ask', label: `Instruction ${out.length + 1}`, from: c.from, to: c.to, summary: prompt ? prompt.title : c.summary, segs: [] };
-      out.push(cur);
-    }
-    cur.to = c.to;
-    cur.segs.push(...c.segs);
-  }
-  for (const c of out) {
-    const edits = steps.slice(c.from, c.to + 1).filter((s) => s.edit && !outsideProject(s.edit.path)).length;
-    const fails = steps.slice(c.from, c.to + 1).filter((s) => s.command?.failed).length;
-    c.summary = `“${c.summary}” · ${c.to - c.from + 1} steps${edits ? `, ${edits} edits` : ''}${fails ? `, ${fails} failed` : ''}`;
-  }
-  return out;
-}

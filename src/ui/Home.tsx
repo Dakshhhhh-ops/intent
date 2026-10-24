@@ -4,6 +4,7 @@ import { parseTrace } from '../core/parse/detect';
 import type { Analysis, Step, Trace } from '../core/types';
 import { SAMPLES } from '../samples';
 import type { CliSession } from './App';
+import { CrtSection } from './fx3d/CrtSection';
 import { SiteFooter } from './fx3d/SiteFooter';
 import { CursorFollower } from './home/Extras';
 import { CaseFiles, type CaseRow } from './home/CaseFiles';
@@ -120,6 +121,9 @@ export function Home({
         />
       )}
       {hero && <CineHero trace={hero.trace} analysis={hero.analysis} ready={ready} onOpen={() => onSample(hero.id)} onPick={pick} source={hero.label === 'Real session' ? `Real ${hero.agent} session` : hero.label} />}
+
+      {/* ------------------------------------------------------------ the black box */}
+      {hero && <CrtSection trace={hero.trace} analysis={hero.analysis} source={hero.label === 'Real session' ? `Real ${hero.agent} session` : hero.label} onOpen={() => onSample(hero.id)} />}
 
       <div className="h-wrap">
         {sessions && (

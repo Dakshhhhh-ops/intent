@@ -1663,3 +1663,114 @@ html.has-cursor .cursor-ring {
     grid-row: auto;
   }
 }
+
+/* ------------------------------------------------------------ CRT black box */
+.crt-section {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 120px 32px 0;
+}
+
+.crt-head {
+  max-width: 900px;
+  margin-bottom: 40px;
+}
+
+.crt-monitor {
+  perspective: 1400px;
+}
+
+.crt-bezel {
+  position: relative;
+  padding: 28px;
+  border-radius: 28px;
+  background:
+    linear-gradient(145deg, #2a2b2f 0%, #17181b 40%, #0e0f11 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.6),
+    0 40px 90px -30px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.crt-screen {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #000;
+  box-shadow:
+    inset 0 0 40px rgba(0, 0, 0, 0.9),
+    0 0 0 2px #050505,
+    0 0 60px rgba(80, 255, 140, 0.08);
+}
+
+.crt-screen::after {
+  /* glass reflection */
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(120% 70% at 20% 0%, rgba(255, 255, 255, 0.07), transparent 50%);
+}
+
+.crt-canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.crt-chin {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 30px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--text-3);
+}
+
+.crt-led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4cff8f;
+  box-shadow: 0 0 10px #4cff8f;
+}
+
+.crt-open {
+  margin-left: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 99px;
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 7px 14px;
+}
+
+.crt-open:hover {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+@media (max-width: 700px) {
+  .crt-section {
+    padding: 88px 18px 0;
+  }
+
+  .crt-bezel {
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .crt-screen {
+    border-radius: 10px;
+  }
+}
+

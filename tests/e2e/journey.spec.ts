@@ -7,7 +7,7 @@ const app = pathToFileURL(resolve('dist/index.html')).href;
 
 test('the main button opens the real Handrail session', async ({ page }) => {
   await page.goto(app);
-  await expect(page.getByText('Real Claude Code session')).toBeVisible();
+  await expect(page.locator('.ch-hud', { hasText: 'Real Claude Code session' })).toBeVisible();
   await page.getByRole('button', { name: /See a real run/ }).click();
   await expect(page.getByRole('heading', { name: 'The agent said it was done. The log disagrees.' })).toBeVisible();
   const claim = page.locator('.claim', { hasText: 'all 6 tests pass' });

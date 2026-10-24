@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intent Replay — App Map</title>
+<style>
+  :root { --bg:#ffffff; --fg:#1c2024; --muted:#60646c; --line:#e0e1e6; --card:#f9f9fb; --accent:#c2410c; --bad:#dc3e42; --ok:#208368; --code:#f0f0f3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1011; --fg:#f2f3f5; --muted:#9ba1a8; --line:#2a2c31; --card:#16171a; --accent:#ff8a3d; --bad:#ff6b6e; --ok:#3dd9a8; --code:#1e2024; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 30px; line-height: 1.15; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 36px 0 10px; padding-top: 18px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 8px 0; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  code, kbd { font: 13.5px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  .pieces { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card p { margin: 4px 0 0; color: var(--muted); font-size: 14.5px; }
+  ol.route { padding-left: 22px; }
+  ol.route li { margin: 0 0 16px; }
+  .where { display: block; margin: 2px 0 4px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font: 13px system-ui, sans-serif; fill: var(--fg); }
+  svg .box { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+  svg .hot { stroke: var(--accent); }
+  svg .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#a); }
+  svg .small { font-size: 11.5px; fill: var(--muted); }
+  ul.change li { margin: 0 0 8px; }
+  details { margin: 10px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  .note { color: var(--muted); font-size: 14px; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Intent Replay — App Map</h1>
+  <p class="sub">A take-home guide to where things live. Snapshot of commit <code>a70f07e</code>; the code may have moved on since, so search for the symbol names if a line number has drifted.</p>
+
+  <h2>What the app does</h2>
+  <p>Intent Replay reads one AI coding agent's session log (Claude Code, Codex, or the open Intent Trace format) and checks what the agent <em>said</em> against what the log shows it <em>did</em>. Each claim in the agent's closing message ("all tests pass", "fixed", "only changed X") gets a verdict with the step that proves it. Around that check, the same run becomes a replayable timeline, line-by-line blame, and a list of findings.</p>
+
+  <div class="pieces">
+    <div class="card"><h3>Parsers</h3><p><code>src/core/parse/</code> turn each agent's log format into one list of steps.</p></div>
+    <div class="card"><h3>Analyzer</h3><p><code>src/core/analyze/</code> rebuilds files, checks claims, runs the review rules, groups chapters.</p></div>
+    <div class="card"><h3>Viewer</h3><p><code>src/ui/</code> is the React app: Brief, Replay, Changes, Findings.</p></div>
+    <div class="card"><h3>CLI</h3><p><code>cli/</code> finds local sessions, serves the viewer, prints reports, runs <code>audit</code>.</p></div>
+  </div>
+  <p class="note">There is no server, database or external service: everything runs in the browser or in Node on your machine.</p>
+
+  <h2>One action, end to end</h2>
+  <p>Action: open the sample <strong>“All tests pass.” They didn't.</strong> and see the claim stamped <strong>Contradicted</strong> next to the failing test output.</p>
+  <svg viewBox="0 0 820 190" role="img" aria-labelledby="dgt dgd">
+    <title id="dgt">From log to red stamp</title>
+    <desc id="dgd">The session log goes into parseTrace, which produces steps. checkClaims compares the agent's sentence with the last test run. The Brief shows the verdict and the evidence.</desc>
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="currentColor"/></marker></defs>
+    <rect class="box" x="10" y="40" width="150" height="90" rx="10"/>
+    <text x="85" y="78" text-anchor="middle">Session log</text>
+    <text x="85" y="98" text-anchor="middle" class="small">.jsonl / .json</text>
+    <rect class="box" x="220" y="40" width="170" height="90" rx="10"/>
+    <text x="305" y="72" text-anchor="middle">1 · parseTrace</text>
+    <text x="305" y="92" text-anchor="middle" class="small">src/core/parse/detect.ts</text>
+    <text x="305" y="110" text-anchor="middle" class="small">→ list of steps</text>
+    <rect class="box hot" x="450" y="40" width="170" height="90" rx="10"/>
+    <text x="535" y="72" text-anchor="middle">2 · checkClaims</text>
+    <text x="535" y="92" text-anchor="middle" class="small">src/core/analyze/claims.ts</text>
+    <text x="535" y="110" text-anchor="middle" class="small">claim vs last test run</text>
+    <rect class="box" x="680" y="40" width="130" height="90" rx="10"/>
+    <text x="745" y="72" text-anchor="middle">3 · Brief</text>
+    <text x="745" y="92" text-anchor="middle" class="small">src/ui/Brief.tsx</text>
+    <text x="745" y="110" text-anchor="middle" class="small">≠ Contradicted</text>
+    <path class="arrow" d="M160 85 H214" style="color:var(--muted)"/>
+    <path class="arrow" d="M390 85 H444" style="color:var(--muted)"/>
+    <path class="arrow" d="M620 85 H674" style="color:var(--muted)"/>
+    <text x="410" y="170" text-anchor="middle" class="small">The same core code also runs in the CLI, so the web view, the Markdown report and the CI check agree.</text>
+  </svg>
+
+  <h2>Reference route: three stops</h2>
+  <p class="note">A reference route through the code for the action above. Open the project in your editor and search for each symbol.</p>
+  <ol class="route">
+    <li>
+      <h3>Read the log</h3>
+      <span class="where"><code>src/core/parse/detect.ts</code> → <code>parseTrace</code>, then <code>src/core/parse/claudeCode.ts</code> → <code>parseClaudeCode</code></span>
+      <p><code>parseTrace</code> works out which agent wrote the file and hands it to that parser. <code>parseClaudeCode</code> walks the log line by line and turns reads, edits, commands (with their exit codes and output) and messages into steps. This is why the replay shows <em>step 12: Re-run the suite</em>.</p>
+    </li>
+    <li>
+      <h3>Check the claim</h3>
+      <span class="where"><code>src/core/analyze/claims.ts</code> → <code>findClaimsInText</code>, <code>checkClaims</code>, <code>weakProof</code>; helpers in <code>src/core/analyze/commands.ts</code> → <code>failedAs</code>, <code>testSummary</code></span>
+      <p><code>findClaimsInText</code> spots "All tests pass." in the agent's last message. <code>checkClaims</code> finds the last test run before it. That run exited 0, but only because <code>| tail</code> hid the real exit code; <code>failedAs</code> sees the failures in the output, so the verdict is Contradicted. <code>weakProof</code> is the other side: it stops weak evidence (a scratch copy, a cut-off summary, a wrong test count) from earning a green stamp.</p>
+    </li>
+    <li>
+      <h3>Show it</h3>
+      <span class="where"><code>src/ui/Brief.tsx</code> → <code>Brief</code> (the "said vs shown" block), <code>src/ui/Evidence.tsx</code> → <code>maskingPipe</code></span>
+      <p><code>Brief</code> puts the agent's words next to what the log shows, with the seal between them. The evidence card prints <em>exit 0 · hidden by | tail</em>, which <code>maskingPipe</code> works out from the command.</p>
+    </li>
+  </ol>
+
+  <h2>To change this, start here</h2>
+  <ul class="change">
+    <li><strong>A new kind of claim</strong> (e.g. "the docs are updated"): add a pattern to <code>PATTERNS</code> in <code>src/core/analyze/claims.ts</code>, then decide its verdict in <code>evaluate</code> in the same file. Add a case to <code>tests/claims.test.ts</code>.</li>
+    <li><strong>A new review rule</strong>: write a <code>Rule</code> in <code>src/core/analyze/rules.ts</code> and register it in <code>RULES</code> and <code>RULE_INFO</code>. Tests go in <code>tests/rules.test.ts</code>.</li>
+    <li><strong>Another agent's log format</strong>: add a parser next to <code>claudeCode.ts</code> and a branch in <code>parseTrace</code> (<code>src/core/parse/detect.ts</code>).</li>
+    <li><strong>How the run is split into chapters</strong>: <code>chapters</code> in <code>src/core/analyze/chapters.ts</code> (used by both the Brief and the report).</li>
+    <li><strong>Colors and spacing of the Brief</strong>: <code>src/ui/brief.css</code> (start at <code>.bv-duel</code>); shared tokens are at the top of <code>src/ui/styles.css</code>.</li>
+    <li><strong>A new CLI command</strong>: the <code>switch</code> in <code>main</code> in <code>cli/main.ts</code>; <code>audit</code> there is a small example.</li>
+  </ul>
+
+  <h2>A practice to reuse</h2>
+  <p><strong>Measure on real data, and check both kinds of answer by hand.</strong> The claim checker was first run on 86 real local sessions (<code>intent-replay audit</code>, in <code>cli/main.ts</code>). Reviewing every red verdict found ESLint warnings being read as failures; reviewing random samples of green verdicts found weak proof such as a scratch-copy test or "146 tests" backed by a run of 8. Each fix became a named test in <code>tests/claims.test.ts</code> (for example the block "proof, second round (from a hand review of 30 supported verdicts)").</p>
+  <p>On another project, the same move works for any tool that gives a verdict: run it on real inputs, hand-check a sample of the "yes" answers as well as the "no" answers, and turn each mistake into a test before fixing it.</p>
+
+  <h2>Run it again</h2>
+<pre><code>git clone https://github.com/Dakshhhhh-ops/intent &amp;&amp; cd intent
+npm install          # also builds the viewer and the CLI
+npm run dev          # viewer with hot reload; open the printed localhost link
+npm test             # unit tests
+node dist-cli/intent-replay.mjs audit   # fact-check every local session, counts only</code></pre>
+  <p>Or open the hosted viewer: <a href="https://dakshhhhh-ops.github.io/intent/">dakshhhhh-ops.github.io/intent</a>.</p>
+
+  <details>
+    <summary>Where the rest lives</summary>
+    <p><code>src/core/analyze/files.ts</code> rebuilds each changed file and remembers which step wrote every line (the blame in Changes). <code>src/core/parse/slim.ts</code> drops bulky bookkeeping from huge logs before parsing. <code>src/ui/parseWorker.ts</code> parses dropped files off the main thread. <code>scripts/import-run.ts</code> turns a real session into a shareable sample and refuses to write one that still contains personal data.</p>
+  </details>
+</main>
+</body>
+</html>

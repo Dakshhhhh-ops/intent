@@ -12,7 +12,8 @@ describe('redact', () => {
   ])('masks %s', (secret) => {
     const out = redact(`token is ${secret} ok`);
     expect(out).not.toContain(secret);
-    expect(out).toMatch(/^token is «secret:.+» ok$/);
+    // Hidden either way; repeated-character and EXAMPLE values are marked as placeholders.
+    expect(out).toMatch(/^token is «(?:secret|masked):.+» ok$/);
   });
 
   it('masks a whole private key block', () => {
@@ -47,7 +48,8 @@ describe('redact', () => {
   // «secret:«secret:password». The real kind is lost and secretKinds() reports "password".
   // Affects every kind whose name is 7+ chars (aws-key, github-token, private-key, ...); only jwt survives.
   it('keeps the specific kind of a masked key', () => {
-    expect(redact('AKIAIOSFODNN7EXAMPLE')).toBe('«secret:aws-key»');
+    expect(redact('AKIAZ7QW4ERT9YUP3LMN')).toBe('«secret:aws-key»');
+    expect(redact('AKIAIOSFODNN7EXAMPLE')).toBe('«masked:aws-key»');
     expect(redact('-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----')).toBe('«secret:private-key»');
   });
 });
@@ -75,7 +77,7 @@ describe('redact: common credential formats (from a security audit)', () => {
     ['OPENAI_KEY=sk-' + 'z'.repeat(30), 'z'.repeat(30)],
   ])('masks %s', (text, secret) => {
     expect(redact(text)).not.toContain(secret);
-    expect(redact(text)).toContain('«secret:');
+    expect(redact(text)).toMatch(/«(?:secret|masked):/);
   });
 
   it.each([
@@ -94,5 +96,42 @@ describe('redact: prose about passing checks', () => {
   it('leaves "checks pass: backend, web" alone', () => {
     const t = 'All three CI checks pass: backend, web and Docker.';
     expect(redact(t)).toBe(t);
+  });
+});
+
+describe('redact: real-looking secrets versus placeholders', () => {
+  it.each([
+    ['OPENAI_API_KEY=sk-proj-Xk9pL2mQ8rT4vW7yB3nC6dF1gH5jK0sZ'],
+    ['GITHUB_TOKEN=ghp_Zq8Lm3Vt7Rk2Wp9Xn4Bc6Hd1Fs5Gj0Ya2Tu4'],
+    ['postgres://app:N7#qLz2!vR9kWm4@db.prod.internal:5432/app'],
+    ['{"api_key": "f3Kq9Lm2Zx7Vt4Rp8Wn1Bc5"}'],
+  ])('flags a real-looking value: %s', (text) => {
+    expect(secretKinds(redact(text)).length).toBe(1);
+  });
+
+  it.each([
+    ['OPENAI_API_KEY=your-key-here'],
+    ['API_TOKEN=xxxxxxxxxxxxxxxxxxxx'],
+    ['STRIPE_SECRET=sk_test_' + 'a'.repeat(24)],
+    ['SECRET_KEY=changeme-in-production'],
+    ['DATABASE_URL=postgres://postgres:postgres@localhost:5432/dev'],
+    ['DATABASE_URL=postgres://app:s3cretLocalPw@localhost:5432/dev'],
+    ['AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE'],
+  ])('does not flag a placeholder or local dev value: %s', (text) => {
+    const out = redact(text);
+    // Masked, or left as is when it is plainly a placeholder; never counted as a secret.
+    expect(out).not.toMatch(/«secret:/);
+    expect(secretKinds(out)).toEqual([]);
+  });
+});
+
+describe('redact: edge cases from a real-session review', () => {
+  it('reads "KEY= command" as an empty assignment, not a key', () => {
+    const t = 'GITHUB_REPO= LLM_API_KEY= .venv/Scripts/python -m pytest -q';
+    expect(redact(t)).toBe(t);
+  });
+
+  it('ignores text that only mentions the marker format', () => {
+    expect(secretKinds('Masked values become «secret:kind» so rules can see them.')).toEqual([]);
   });
 });

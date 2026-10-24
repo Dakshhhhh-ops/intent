@@ -32,7 +32,8 @@ const PATTERNS: Pattern[] = [
   // Azure storage / service bus connection strings
   { kind: 'azure-key', re: /(\b(?:AccountKey|SharedAccessKey|sig)=)([A-Za-z0-9+\/%=]{20,})/g, group: 2 },
   // NAME_KEY=…, NAME_TOKEN=…, NAME_SECRET=…, NAME_PASSWORD=… (env files, shell exports)
-  { kind: 'env-secret', re: /(\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)[A-Z0-9_]*\s*=\s*["']?)([^\s"'`]{8,})/g, group: 2 },
+  // The value starts right after "=": "LLM_API_KEY= python …" is an empty assignment, not a key.
+  { kind: 'env-secret', re: /(\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)[A-Z0-9_]*=["']?)([^\s"'`]{8,})/g, group: 2 },
   // password: hunter2, "password": "correct-horse", api_key = '…' (YAML, JSON, config files)
   { kind: 'password', re: new RegExp(String.raw`(?<![«\w-])(["']?${KEY}["']?\s*[:=]\s*["']?)([^\s"'\x60,;}{)\]]{6,})`, 'gi'), group: 2 },
 ];
@@ -41,6 +42,7 @@ const PATTERNS: Pattern[] = [
 function placeholder(value: string): boolean {
   return (
     value.startsWith('«secret') ||
+    value.startsWith('«masked') ||
     /^\$\{?\w+\}?$/.test(value) ||
     /^process\.env/.test(value) ||
     /\(|^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$.]*$/.test(value) ||
@@ -48,22 +50,46 @@ function placeholder(value: string): boolean {
   );
 }
 
+/**
+ * Does a masked value look like a real credential? Everything is masked either way; only real-looking
+ * values become «secret:…» (and a finding). Placeholders ("your-key-here", "xxxx", "example"), values
+ * made of a few repeated characters, short plain words, and local dev database passwords become «masked:…».
+ */
+function looksReal(value: string, kind: string, after: string): boolean {
+  if (kind === 'private-key') return true;
+  const v = value.replace(/^(?:sk-(?:proj-|ant-(?:api\d+-)?)?|gh[pousr]_|github_pat_|glpat-|npm_|hf_|xox[abprs]-|SG\.|AKIA|ASIA|AIza|(?:sk|rk)_(?:live|test)_)/, '');
+  if (v.length < 8) return false;
+  if (new Set(v.replace(/[^A-Za-z0-9]/g, '')).size < Math.min(8, Math.ceil(v.length / 3))) return false;
+  if (/(.)\1{4,}/.test(v)) return false;
+  if (/your|example|sample|dummy|fake|changeme|placeholder|redacted|xxx|here|todo|replace|insert|(?:^|[-_.])test(?:$|[-_.])/i.test(v)) return false;
+  if (kind === 'url-password' && (/^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])\b/.test(after) || /^(?:postgres|password|admin|root|secret|dev|test|mysql|guest|pass)$/i.test(v))) return false;
+  return true;
+}
+
 export const SECRET_MARK = /«secret:([a-z-]+)»/g;
+const KNOWN_KINDS = new Set(PATTERNS.map((p) => p.kind));
 
 export function redact(input: string): string {
   if (!input) return input;
   let out = input;
   for (const p of PATTERNS) {
     p.re.lastIndex = 0;
+    // The arguments after the groups are the match offset and the whole string.
+    const mark = (value: string, args: unknown[]) => {
+      const offset = args[args.length - 2] as number;
+      const whole = args[args.length - 1] as string;
+      const after = whole.slice(offset + String(args[0]).length);
+      return looksReal(value, p.kind, after) ? `«secret:${p.kind}»` : `«masked:${p.kind}»`;
+    };
     if (p.group) {
-      out = out.replace(p.re, (...m: string[]) => {
-        const prefix = m[1] ?? '';
-        const value = m[2] ?? '';
+      out = out.replace(p.re, (...m: unknown[]) => {
+        const prefix = (m[1] as string) ?? '';
+        const value = (m[2] as string) ?? '';
         const suffix = typeof m[3] === 'string' ? m[3] : '';
-        return placeholder(value) ? m[0] : `${prefix}«secret:${p.kind}»${suffix}`;
+        return placeholder(value) ? (m[0] as string) : `${prefix}${mark(value, m)}${suffix}`;
       });
     } else {
-      out = out.replace(p.re, `«secret:${p.kind}»`);
+      out = out.replace(p.re, (...m: unknown[]) => mark(m[0] as string, m));
     }
   }
   return out;
@@ -72,6 +98,7 @@ export function redact(input: string): string {
 export function secretKinds(text: string | undefined): string[] {
   if (!text) return [];
   const kinds = new Set<string>();
-  for (const m of text.matchAll(SECRET_MARK)) kinds.add(m[1]);
+  // Only kinds this module produces: text that merely mentions the marker format doesn't count.
+  for (const m of text.matchAll(SECRET_MARK)) if (KNOWN_KINDS.has(m[1])) kinds.add(m[1]);
   return [...kinds];
 }

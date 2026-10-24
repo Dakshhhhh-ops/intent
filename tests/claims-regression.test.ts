@@ -104,3 +104,16 @@ describe('bold lines', () => {
     expect(checkClaims(r.steps, trackFiles(r.steps).changed).map((c) => c.verdict)).toEqual(['contradicted']);
   });
 });
+
+describe('scratch builds', () => {
+  it('bundling a throwaway script into .scratch is not the project build', () => {
+    const r = new Run();
+    r.prompt('check');
+    r.read('src/a.ts', 'a');
+    r.edit('src/a.ts', 'a', 'b');
+    r.cmd('npm run build', { output: '✓ built in 1.2s' });
+    r.cmd('grep -n "sessions" README.md; npx esbuild .scratch/x.ts --bundle --outfile=.scratch/x.mjs && node .scratch/x.mjs', { output: '13: 3 failed checks were reviewed by hand' });
+    r.say('The build works.');
+    expect(checkClaims(r.steps, trackFiles(r.steps).changed).map((c) => c.verdict)).toEqual(['supported']);
+  });
+});

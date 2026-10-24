@@ -173,6 +173,11 @@ const NOUN: Partial<Record<ClaimKind, string>> = {
 
 const E2E = /\b(playwright|cypress|webdriver|puppeteer|e2e)\b/i;
 
+/** A bundler pointed at a scratch or temp path ("esbuild .scratch/x.ts --outfile=.scratch/x.mjs"). */
+const SCRATCH_BUILD = /\b(?:esbuild|webpack|rollup|tsup|vite build|tsc)\b[^;&|\n]*(?:\.scratch\/|scratch|\/tmp\/|\$TEMP|\$TMPDIR|%TEMP%)/i;
+/** The project's own build in the same command ("npm run build", "vite build" with no scratch path). */
+const PROJECT_BUILD = /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b|\bnext build\b|\bcargo build\b|\bgo build\b/i;
+
 /** Builds that type-check on the way (a plain `vite build` or esbuild does not). */
 const BUILD_TYPECHECKS = /\btsc\b|\bvue-tsc\b|\bnext build\b|\bnuxt build\b|\bng build\b|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b|\bcargo (?:build|check)\b|\bgo build\b|\bdotnet build\b|\bmvn\b|\bgradlew?\b/i;
 
@@ -363,7 +368,9 @@ function evaluate(
         s.command &&
         !shellBroke(s.command) &&
         (s.command.categories.includes(cat) || (cat === 'typecheck' && s.command.categories.includes('build') && BUILD_TYPECHECKS.test(s.command.cmd))) &&
-        (!scope || (scope === 'e2e') === E2E.test(s.command.cmd)),
+        (!scope || (scope === 'e2e') === E2E.test(s.command.cmd)) &&
+        // Bundling a throwaway script into a scratch folder is not building the project.
+        !((cat === 'build' || cat === 'typecheck') && SCRATCH_BUILD.test(shellCode(s.command.cmd)) && !PROJECT_BUILD.test(shellCode(s.command.cmd))),
     );
     const noun = NOUN[kind]!;
     if (!runs.length) {

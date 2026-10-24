@@ -327,10 +327,10 @@ describe('rule: risky-command', () => {
 describe('rule: secret-exposure', () => {
   it('fires when a credential appears in command output', () => {
     const r = new Run();
-    r.cmd('cat .env', { output: redact('AWS_KEY=AKIAIOSFODNN7EXAMPLE') });
+    r.cmd('cat .env', { output: redact('AWS_KEY=AKIAZ7QW4ERT9YUP3LMN') });
     const [f] = findingsOf(r, 'secret-exposure');
     // Kind should be "aws key"; re-masking bug fixed in redact.ts.
-    expect(f.title).toMatch(/^A .+ appeared in the run$/);
+    expect(f.title).toMatch(/^An? .+ appeared in the run$/);
     expect(f.severity).toBe('high');
   });
 
@@ -565,5 +565,22 @@ describe('scratch paths', () => {
     expect(shortenScratch(`cd "${p.replace('/qa/tests/flaky.spec.ts', '')}" && ls`)).toBe('cd "$SCRATCH" && ls');
     expect(outsideProject('$SCRATCH/qa/x.ts')).toBe(true);
     expect(outsideProject('src/x.ts')).toBe(false);
+  });
+});
+
+describe('secret findings: real keys only', () => {
+  it('does not flag fake keys written into a test file, or placeholders in output', () => {
+    const r = new Run();
+    r.prompt('add a redaction test');
+    r.write('tests/redact.test.ts', redact("expect(redact('OPENAI_API_KEY=sk-proj-Xk9pL2mQ8rT4vW7yB3nC6dF1gH5jK0sZ')).toBe('x');"));
+    r.cmd('cat .env.example', { output: redact('OPENAI_API_KEY=your-key-here\nDATABASE_URL=postgres://postgres:postgres@localhost:5432/dev') });
+    expect(findingsOf(r, 'secret-exposure')).toEqual([]);
+  });
+
+  it('still flags a real-looking key in the agent context', () => {
+    const r = new Run();
+    r.prompt('deploy');
+    r.cmd('cat .env', { output: redact('OPENAI_API_KEY=sk-proj-Xk9pL2mQ8rT4vW7yB3nC6dF1gH5jK0sZ') });
+    expect(findingsOf(r, 'secret-exposure')).toHaveLength(1);
   });
 });

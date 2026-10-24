@@ -410,6 +410,28 @@ const riskyCommand: Rule = ({ steps }) => {
 
 // ------------------------------------------------------------ secrets
 
+const KIND_NAMES: Record<string, string> = {
+  'openai-key': 'OpenAI key',
+  'anthropic-key': 'Anthropic key',
+  'aws-key': 'AWS key',
+  'github-token': 'GitHub token',
+  'gitlab-token': 'GitLab token',
+  'npm-token': 'npm token',
+  'huggingface-token': 'Hugging Face token',
+  'sendgrid-key': 'SendGrid key',
+  'slack-token': 'Slack token',
+  'google-key': 'Google API key',
+  'stripe-key': 'Stripe key',
+  jwt: 'JWT',
+  'private-key': 'private key',
+  'bearer-token': 'bearer token',
+  'url-password': 'password in a URL',
+  'azure-key': 'Azure key',
+  'env-secret': 'secret in an environment variable',
+  password: 'password or token',
+};
+const kindName = (kind: string) => KIND_NAMES[kind] ?? kind.replace(/-/g, ' ');
+
 const secretExposure: Rule = ({ steps }) => {
   const out: Omit<Finding, 'id'>[] = [];
   const seen = new Map<string, number[]>();
@@ -418,7 +440,10 @@ const secretExposure: Rule = ({ steps }) => {
     if (s.edit) {
       const { added } = lineDelta(s);
       const kinds = secretKinds(added.join('\n') + (s.edit.after ?? ''));
-      if (kinds.length && !isDocFile(s.edit.path)) written.push({ step: s.id, path: s.edit.path, kinds });
+      // Test and fixture files hold fake keys on purpose (a redaction test, a sample config).
+      if (kinds.length && !isDocFile(s.edit.path) && !isTestFile(s.edit.path) && !/(^|\/)(?:fixtures?|__fixtures__|testdata|examples?)\//i.test(s.edit.path)) {
+        written.push({ step: s.id, path: s.edit.path, kinds });
+      }
     }
     const texts = [s.command?.cmd, s.command?.output, s.read?.content, s.output, s.search?.output, s.text];
     for (const k of secretKinds(texts.filter(Boolean).join('\n'))) {
@@ -432,7 +457,7 @@ const secretExposure: Rule = ({ steps }) => {
       rule: 'secret-exposure',
       severity: 'high',
       title: `Credential written into ${basename(w.path)}`,
-      detail: `${cap(stepRef(w.step))} put what looks like a ${w.kinds.join(', ')} into ${w.path}. It is masked here.`,
+      detail: `${cap(stepRef(w.step))} put what looks like a ${w.kinds.map(kindName).join(', ')} into ${w.path}. It is masked here.`,
       steps: [w.step],
       files: [w.path],
     });
@@ -442,7 +467,7 @@ const secretExposure: Rule = ({ steps }) => {
     out.push({
       rule: 'secret-exposure',
       severity: 'high',
-      title: `A ${kind.replace(/-/g, ' ')} appeared in the run`,
+      title: `${/^[aeiou]/i.test(kindName(kind)) ? 'An' : 'A'} ${kindName(kind)} appeared in the run`,
       detail: `It shows up in ${uniq.slice(0, 5).map(stepRef).join(', ')}${uniq.length > 5 ? ' and more' : ''}. It is masked in this view and in exports, but it was in the agent's context. Consider rotating it.`,
       steps: uniq,
       files: [],

@@ -1,5 +1,6 @@
 // Sample runs bundled into the viewer, read straight from /examples (the same files you can
-// drag into the app). `label` says honestly where each run came from.
+// drag into the app). `label` says honestly where each run came from. Real sessions come first:
+// the home page opens the first one with a contradicted claim, so the main button shows a real run.
 
 const files = import.meta.glob('../../examples/*.{jsonl,json}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 
@@ -14,14 +15,6 @@ export interface Sample {
 }
 
 const MANIFEST: Omit<Sample, 'text'>[] = [
-  {
-    id: 'cart-rounding',
-    file: 'cart-rounding.claude.jsonl',
-    title: '“All tests pass.” They didn’t.',
-    blurb: 'Asked to fix an off-by-a-cent cart total, the agent breaks discounts with a blind edit, rewrites a test to match, runs only that one test, and reports success.',
-    label: 'Scripted scenario',
-    agent: 'Claude Code format',
-  },
   {
     id: 'taskforge-handrail',
     file: 'taskforge-handrail.intent.json',
@@ -45,6 +38,14 @@ const MANIFEST: Omit<Sample, 'text'>[] = [
     blurb: 'The identical task given to Codex CLI. Compare how it explored the repo, what it changed and how it proved the fix.',
     label: 'Recorded run',
     agent: 'Codex CLI',
+  },
+  {
+    id: 'cart-rounding',
+    file: 'cart-rounding.claude.jsonl',
+    title: '“All tests pass.” They didn’t.',
+    blurb: 'Asked to fix an off-by-a-cent cart total, the agent breaks discounts with a blind edit, rewrites a test to match, runs only that one test, and reports success.',
+    label: 'Scripted scenario',
+    agent: 'Claude Code format',
   },
 ];
 

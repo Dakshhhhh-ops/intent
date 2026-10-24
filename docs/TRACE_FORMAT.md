@@ -1,6 +1,6 @@
 # Intent Trace format (v1)
 
-A small JSON format for recording what a coding agent did, so any agent can be replayed and checked by Intent Replay. It is also what **Share → Download trace (.json)** writes, so exported runs can be opened again.
+The JSON format Intent Replay uses internally: Claude Code and Codex logs are converted to it, the bundled samples are stored in it, and **Share → Download trace (.json)** writes it, so exported runs can be opened again. It is documented here so another agent, or a converter for one, can produce it and get the same replay and claim checks. No agent writes it natively today.
 
 Only `steps` is required. Unknown fields are ignored.
 

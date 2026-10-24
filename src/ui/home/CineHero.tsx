@@ -27,7 +27,7 @@ interface Pin {
   at: number; // scroll progress at which it appears
 }
 
-export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Trace; analysis: Analysis; ready: boolean; onOpen: () => void; onPick: () => void }) {
+export function CineHero({ trace, analysis, ready, onOpen, onPick, source }: { trace: Trace; analysis: Analysis; ready: boolean; onOpen: () => void; onPick: () => void; source?: string }) {
   const section = useRef<HTMLElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -166,6 +166,7 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
         <div className="ch-hud tr ch-reveal">
           <RecTimecode />
           <span>{trace.steps.length} steps on tape</span>
+          {source && <span>{source}</span>}
         </div>
         <div className={`ch-hud bl ${p > 0.02 ? 'on' : ''}`}>
           <span className="ch-pct">{String(pct).padStart(3, '0')}%</span>
@@ -175,7 +176,7 @@ export function CineHero({ trace, analysis, ready, onOpen, onPick }: { trace: Tr
         <div className="ch-bottom ch-reveal">
           <div className="ch-ctas">
             <button className="cta cta-primary vf" onClick={onOpen}>
-              <span>See a run</span>
+              <span>{source?.startsWith('Real') ? 'See a real run' : 'See a run'}</span>
               <Icon name="next" size={18} />
             </button>
             <button className="cta vf" onClick={onPick}>

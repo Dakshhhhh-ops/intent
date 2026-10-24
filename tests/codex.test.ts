@@ -147,3 +147,73 @@ describe('Codex end to end', () => {
     expect(a.verdict.level).toBe('risky');
   });
 });
+
+// Codex 0.162+ logs messages and file changes as item events but runs commands inside JS "exec" cells,
+// which appear only as custom tool calls. These were dropped before, hiding every test run.
+describe('Codex exec cells (0.162+)', () => {
+  const PATCH = '*** Begin Patch\n*** Update File: src/math.js\n@@\n-exports.round = (x) => Math.floor(x);\n+exports.round = (x) => Math.round(x);\n*** End Patch';
+
+  it('reads commands from exec cells even when the turn has item events', () => {
+    const t = parse(
+      new CodexLog().meta().user('Fix rounding')
+        .fileChange({ '/work/app/src/math.js': { type: 'update', unified_diff: '@@ -1 +1 @@\n-a\n+b\n' } })
+        .execCell('npm test', { output: 'Tests: 6 passed, 6 total' })
+        .agent('Done.'),
+    );
+    const cmd = t.steps.find((s) => s.command?.cmd === 'npm test');
+    expect(cmd?.command?.output).toContain('6 passed');
+  });
+
+  it('does not double-count a turn that also has CommandExecution items', () => {
+    const t = parse(new CodexLog().meta().user('Run it').exec('npm test', { output: 'ok' }).execCell('npm test', { output: 'ok' }));
+    expect(t.steps.filter((s) => s.command?.cmd === 'npm test')).toHaveLength(1);
+  });
+
+  it('takes patches from exec cells only when there is no FileChange item for the turn', () => {
+    const withItem = parse(new CodexLog().meta().user('x').fileChange({ '/work/app/src/math.js': { type: 'update', unified_diff: '@@\n-a\n+b\n' } }).patchCell(PATCH));
+    const cellOnly = parse(new CodexLog().meta().user('x').patchCell(PATCH));
+    expect(withItem.steps.filter((s) => s.edit)).toHaveLength(1);
+    expect(cellOnly.steps.filter((s) => s.edit).map((s) => s.edit!.path)).toEqual(['src/math.js']);
+  });
+
+  it('unpacks a printed JSON result into output and exit code', () => {
+    const t = parse(new CodexLog().meta().user('x').agent('ok').execCell('npm test', { json: true, exit: 1, output: 'Tests: 1 failed, 5 passed, 6 total' }));
+    const c = t.steps.find((s) => s.command)!.command!;
+    expect(c.exitCode).toBe(1);
+    expect(c.output).toBe('Tests: 1 failed, 5 passed, 6 total');
+  });
+
+  it('marks a cell that could not run the command as failed', () => {
+    const t = parse(new CodexLog().meta().user('x').agent('ok').execCell('npm test', { failed: 'exec_command failed: rejected by user' }));
+    expect(t.steps.find((s) => s.command)!.command!.failed).toBe(true);
+  });
+});
+
+// The same false-success cases the Claude Code tests cover, in Codex's own format.
+describe('Codex claim checks match Claude Code', () => {
+  const PATCH = '*** Begin Patch\n*** Update File: src/math.js\n@@\n-exports.round = (x) => Math.floor(x);\n+exports.round = (x) => Math.round(x);\n*** End Patch';
+  const run = (test: Parameters<CodexLog['execCell']>[1], said: string, cmd = 'npm test') =>
+    analyze(parse(new CodexLog().meta().user('Fix rounding').agent('Looking.').patchCell(PATCH).execCell(cmd, test).agent(said))).claims;
+
+  it('a failing run contradicts "all tests pass"', () => {
+    expect(run({ json: true, exit: 1, output: 'Tests: 1 failed, 5 passed, 6 total' }, 'All tests pass.')[0]).toMatchObject({ kind: 'tests-pass', verdict: 'contradicted' });
+  });
+
+  it('a failure hidden by a pipe still contradicts it', () => {
+    expect(run({ output: 'Tests: 1 failed, 5 passed, 6 total' }, 'All 6 tests pass.', 'npm test 2>&1 | tail -3')[0]).toMatchObject({ verdict: 'contradicted' });
+  });
+
+  it('a clean run supports it', () => {
+    expect(run({ json: true, exit: 0, output: 'Tests: 6 passed, 6 total' }, 'All tests pass.')[0]).toMatchObject({ verdict: 'supported' });
+  });
+
+  it('a claimed count that the run did not show is not proof', () => {
+    expect(run({ json: true, exit: 0, output: 'Tests: 4 passed, 4 total' }, 'All 12 tests pass.')[0].verdict).not.toBe('supported');
+  });
+
+  it('"only changed" is contradicted by an extra file', () => {
+    const extra = '*** Begin Patch\n*** Update File: test/math.test.js\n@@\n-expect(round(2.5)).toBe(3)\n+expect(round(2.5)).toBe(2)\n*** End Patch';
+    const claims = analyze(parse(new CodexLog().meta().user('Fix rounding').patchCell(PATCH).patchCell(extra).execCell('npm test', { json: true, exit: 0, output: 'Tests: 6 passed, 6 total' }).agent('I only changed `src/math.js`.'))).claims;
+    expect(claims[0]).toMatchObject({ kind: 'only-changed', verdict: 'contradicted' });
+  });
+});

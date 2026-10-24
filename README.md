@@ -4,18 +4,19 @@
 
 When Claude Code or Codex finishes a task, you get a diff and a confident summary: *"Fixed the bug, all tests pass."* Intent Replay reads the agent's own session log and fact-checks every claim in that summary against the commands that really ran: the last test run failed, the exit code was hidden by `| tail`, only one filtered test was re-run, or a test file was edited to match. Each verdict links to the step that proves it. Around that check sits the rest of the story: every read, edit and command as a replayable timeline, and blame that tells you why each changed line was written.
 
-**Try it in the browser:** https://dakshhhhh-ops.github.io/intent/ (three sample runs included; your own logs never leave your machine)
+**Try it in the browser:** https://dakshhhhh-ops.github.io/intent/ (the main button opens a real Claude Code session; your own logs never leave your machine)
 
 ![The Brief: the agent's claims stamped against the log](docs/screenshots/brief.png)
 
 ## Measured on real sessions
 
-In October 2026, Intent Replay was run over every Claude Code and Codex session on the author's machine: 87 sessions (78 Claude Code, 9 Codex), from small fixes to multi-day builds.
+In October 2026, Intent Replay was run over every Claude Code and Codex session on the author's machine: 88 sessions (79 Claude Code, 9 Codex), from small fixes to multi-day builds.
 
-- **42** sessions ended with checkable claims (*tests pass*, *build passes*, *fixed*, *CI is green*, *only changed X*, *didn't touch the tests*): 530 claims in all.
-- In **6 of those 42 sessions (14%)**, the agent's own log contradicts at least one claim it made: **12 claims** in all. Typical cases: "123 tests pass" after the last full run had 2 failures and only one test file was re-run; "Tests: 133 pass" when the output, cut short by `| grep`, shows a failing assertion; "all 6 tests pass" next to `1 failed`. All 12 were reviewed by hand: 10 are clear contradictions and 2 are borderline (one command ran unit and browser tests together and the failure was in a unit test; one claim was hedged by the agent itself).
-- **326** claims are Supported, **176** Unverified and **16** Stale. Unverified is not a failure: it means the log holds no proof either way, for example a check that only ran in a scratch copy, a piped test run whose summary was cut off, or "CI is green" with no look at CI.
-- **33** sessions have at least one high-severity finding: failing checks hidden by a pipe, credentials that ended up in the agent's context, silenced errors, weakened tests and risky commands. Only 6 of them are flagged for a credential alone. Placeholder values (`your-key-here`, `xxxx`, AWS's example key, local dev database passwords) and fake keys in test or fixture files are still masked but never flagged, so a "consider rotating it" finding means the value looked like a real key.
+- **43** sessions ended with checkable claims (*tests pass*, *build passes*, *fixed*, *CI is green*, *only changed X*, *didn't touch the tests*): 541 claims in all.
+- In **6 of those 43 sessions (14%)**, the agent's own log contradicts at least one claim it made: **12 claims** in all. Typical cases: "123 tests pass" after the last full run had 2 failures and only one test file was re-run; "Tests: 133 pass" when the output, cut short by `| grep`, shows a failing assertion; "all 6 tests pass" next to `1 failed`. All 12 were reviewed by hand: 10 are clear contradictions and 2 are borderline (one command ran unit and browser tests together and the failure was in a unit test; one claim was hedged by the agent itself).
+- **336** claims are Supported, **175** Unverified and **18** Stale. Unverified is not a failure: it means the log holds no proof either way, for example a check that only ran in a scratch copy, a piped test run whose summary was cut off, or "CI is green" with no look at CI.
+- **34** sessions have at least one high-severity finding: failing checks hidden by a pipe, credentials that ended up in the agent's context, silenced errors, weakened tests and risky commands. Only 7 of them are flagged for a credential alone. Placeholder values (`your-key-here`, `xxxx`, AWS's example key, local dev database passwords) and fake keys in test or fixture files are still masked but never flagged, so a "consider rotating it" finding means the value looked like a real key.
+- This is one developer's data, mostly hackathon builds and code reviews, so read 14% as one data point, not a rate for every agent. Codex is the thinner half: 9 sessions, none with a contradicted claim, and the checks were tuned mostly on Claude Code logs. Auditing those Codex logs did turn up a parser gap: Codex 0.162+ runs commands inside JavaScript `exec` cells, and those were being dropped, hiding test runs (one session went from 0 commands to 47). That is fixed, and the main false-claim cases now have Codex-format tests too. If you run the audit on your own sessions, its summary holds only counts and random keys: [open an issue](https://github.com/Dakshhhhh-ops/intent/issues) with it and it will be added here.
 - The biggest session, 530 MB, opens in the browser. Parsing it takes about 2 seconds (down from 7.7) because API request dumps and base64 screenshots are dropped before decoding.
 
 A green stamp has to be earned, so the Supported verdicts were reviewed too: three random samples of 30, each followed by fixes for whatever did not hold up. A passing check in a scratch copy no longer proves anything about the project; a claim about CI needs a CI run, read strictly and for the commit it names, and goes stale if new commits were pushed after the last look; a claim listing several fixes needs the full suite, not one narrow test; a test run counts only if its exit code is its own or its pass summary is still in the output; and "146 of 146 tests pass" backed by a run that printed `8 passed` is not proof. In the last sample, 27 of 30 Supported verdicts hold up; the other 3 rest on evidence that is related but weaker than the claim (for example a different workflow's CI run).
@@ -33,6 +34,7 @@ npx -y github:Dakshhhhh-ops/intent audit
 ## What it does
 
 - **Fact-checks the agent's claims.** "All tests pass", "build succeeds", "only changed `cart.js`", "didn't touch the tests". Each claim in the agent's closing message is stamped **Supported**, **Contradicted**, **Stale** or **Unverified**, with a link to the step that proves it. It sees through `npm test | tail` (exit code hidden), re-running only one filtered test, and tests that passed before the code changed again.
+- **Stops a false "done" before you see it.** Installed as a Claude Code Stop hook, it checks the agent's final message the moment it tries to finish. A contradicted claim sends the agent back with the evidence: *"You said 'All 6 tests pass', but the last test run printed '1 failed'. Fix it or correct your summary."*
 - **Blame, but for intent.** Click any changed line to see the step that wrote it, the reason the agent gave just before, whether it had even read that file, and what had just failed.
 - **Replays the run.** A timeline ("the tape") of every read, edit and command, with chapters (Explore, Change, Verify, Repair, Report). Scrub it, step through it with the keyboard, or press play and watch files light up in the file map.
 - **Flags what a reviewer should look at.** Deterministic rules, no AI: weakened tests, blind edits, failure loops, silenced errors, risky commands, leaked secrets, new dependencies, churn, sensitive files, unverified finishes, masked exit codes.
@@ -75,15 +77,57 @@ intent-replay report latest       # PR-ready Markdown (--out report.md, --json)
 intent-replay check latest        # exit 1 on high findings (--fail-on medium|low)
 intent-replay export latest -o replay.html   # one offline file, secrets masked
 intent-replay audit               # fact-check every local session at once (counts and keys only, --json)
+intent-replay hook install        # check claims every time Claude Code stops (see below)
 ```
 
-A target is a number from `intent-replay list`, `latest`, or a path to a `.jsonl` / `.json` file.
+A target is a key from `intent-replay list`, a number, `latest`, or a path to a `.jsonl` / `.json` file.
 
-### In CI
+### Catch a false claim before the agent finishes (Claude Code)
+
+```bash
+npm i -g github:Dakshhhhh-ops/intent
+intent-replay hook install        # --project writes this repo's .claude/settings.json instead
+```
+
+This adds a [Stop hook](https://code.claude.com/docs/en/hooks) to `~/.claude/settings.json`, next to any hooks you already have:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node \"/path/to/intent/dist-cli/intent-replay.mjs\" hook", "timeout": 60 }] }
+    ]
+  }
+}
+```
+
+When Claude Code tries to finish, the hook reads the session log so far plus the final message (`last_assistant_message`, because the log file can lag behind), and checks only the claims in that message. If one is contradicted, the hook exits with code 2 and Claude Code gives the agent the reason instead of stopping:
+
+```
+Intent Replay checked your final message against this session's log and found a claim it contradicts:
+- You said "All 6 tests pass.", but your own log disagrees: The last test run (step 3) failed. Its exit code
+  was hidden, but the output reports failures. "Tests: 1 failed, 5 passed, 6 total"
+Fix the problem and rerun the check, or correct your summary so it says what the log shows.
+```
+
+It sends the agent back once. If the next final message is still contradicted (`stop_hook_active` is set), you get a warning instead of a loop. Supported, Unverified and Stale claims never block, and if the hook itself fails, the agent stops normally. The hook is for Claude Code; for Codex runs, use `intent-replay check latest` afterwards.
+
+### On a pull request
+
+The agent's session log lives on the machine that ran the agent, so the usual path is to write the report there and paste it into the PR:
+
+```bash
+intent-replay report latest --out intent-report.md
+```
+
+If the agent itself runs in CI, its log is on the runner when that step ends, and the check can follow it in the same job. Claude Code keeps the session log for `claude -p` runs, and `latest` picks the newest session for the current folder:
 
 ```yaml
-- run: npx -y github:Dakshhhhh-ops/intent report $AGENT_LOG --out intent-report.md
-- run: npx -y github:Dakshhhhh-ops/intent check $AGENT_LOG --fail-on high
+- run: claude -p "$TASK"
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+- run: npx -y github:Dakshhhhh-ops/intent report latest --out intent-report.md
+- run: npx -y github:Dakshhhhh-ops/intent check latest --fail-on high
 ```
 
 ### From source
@@ -118,16 +162,16 @@ The local viewer (`intent-replay`) listens on 127.0.0.1 only, answers only reque
 
 - Claude Code session JSONL
 - Codex CLI rollout JSONL (older `response_item` and newer `item_completed` formats)
-- **Intent Trace JSON**, a small open format any agent can emit: [docs/TRACE_FORMAT.md](docs/TRACE_FORMAT.md)
+- **Intent Trace JSON**, the format the tool uses internally (the bundled samples and every exported trace use it), documented so other agents or converters can target it: [docs/TRACE_FORMAT.md](docs/TRACE_FORMAT.md). No agent writes it natively today.
 
 ## Sample runs
 
 | Sample | What it shows |
 |---|---|
-| [`examples/cart-rounding.claude.jsonl`](examples/cart-rounding.claude.jsonl) | **Scripted scenario.** Fixing an off-by-a-cent cart total, the agent breaks discounts with a blind edit, rewrites a test to match, runs only that one test, and reports "All tests pass." The agent's decisions are scripted; every file and every test result in the log is real (generated by [`scripts/make-scripted-sample.mjs`](scripts/make-scripted-sample.mjs)). |
 | [`examples/taskforge-handrail.intent.json`](examples/taskforge-handrail.intent.json) | **Real session.** An unscripted Claude Code session from building Handrail, an accessible project board. The agent reports "all 6 tests pass" after testing in a separate copy; its last browser test run printed `1 failed`, and a `| grep` at the end of the command hid that from the exit code. Trimmed with `--steps` to the part of the session where it happens. Machine paths are rewritten, and lines about a separate hackathon submission draft are removed with `--drop-files` and `--redact-lines`, each marked `[line removed]`; nothing else is changed. |
 | [`examples/csv-quotes-claude.intent.json`](examples/csv-quotes-claude.intent.json) | **Recorded run.** A real headless Claude Code session fixing quoted CSV fields. Clean. |
 | [`examples/csv-quotes-codex.intent.json`](examples/csv-quotes-codex.intent.json) | **Recorded run.** The same task given to Codex CLI. Clean. |
+| [`examples/cart-rounding.claude.jsonl`](examples/cart-rounding.claude.jsonl) | **Scripted scenario.** Fixing an off-by-a-cent cart total, the agent breaks discounts with a blind edit, rewrites a test to match, runs only that one test, and reports "All tests pass." The agent's decisions are scripted; every file and every test result in the log is real (generated by [`scripts/make-scripted-sample.mjs`](scripts/make-scripted-sample.mjs)). |
 
 The two CSV runs are clean, so they show what a passing check looks like. The Handrail session is one of the 12 real contradictions from [Measured on real sessions](#measured-on-real-sessions); run `intent-replay audit` to find them in your own logs.
 

@@ -5,13 +5,22 @@ import { resolve } from 'node:path';
 // The built single-file viewer, opened straight from disk: no server needed.
 const app = pathToFileURL(resolve('dist/index.html')).href;
 
+test('the main button opens the real Handrail session', async ({ page }) => {
+  await page.goto(app);
+  await expect(page.getByText('Real Claude Code session')).toBeVisible();
+  await page.getByRole('button', { name: /See a real run/ }).click();
+  await expect(page.getByRole('heading', { name: 'The agent said it was done. The log disagrees.' })).toBeVisible();
+  const claim = page.locator('.claim', { hasText: 'all 6 tests pass' });
+  await expect(claim.locator('.stamp')).toHaveText('Contradicted');
+});
+
 test('core journey: brief → contradicted claim → evidence → blame → why', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(app);
   await expect(page.getByRole('heading', { name: /Prove it/ })).toBeVisible();
 
-  await page.getByRole('button', { name: /See a run/ }).click();
+  await page.goto(`${app}?sample=cart-rounding`);
   await expect(page.getByRole('heading', { name: 'The agent said it was done. The log disagrees.' })).toBeVisible();
 
   const claim = page.locator('.claim', { hasText: 'All tests pass.' });

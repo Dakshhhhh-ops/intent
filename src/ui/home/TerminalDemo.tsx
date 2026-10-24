@@ -15,7 +15,20 @@ const SCENES: { id: string; label: string; title: string; lines: Line[] }[] = [
       { t: 'out', s: 'added 1 package in 6s', c: 'dim' },
       { t: 'cmd', s: 'intent-replay --help' },
       { t: 'out', s: 'intent-replay — debug what an AI coding agent actually did', c: 'acc' },
-      { t: 'out', s: '  list · open · watch · report · check · export', c: 'dim' },
+      { t: 'out', s: '  list · open · watch · report · check · export · hook', c: 'dim' },
+    ],
+  },
+  {
+    id: 'hook',
+    label: 'Stop hook',
+    title: 'Send a false "done" back',
+    lines: [
+      { t: 'cmd', s: 'intent-replay hook install' },
+      { t: 'out', s: '✓ Added the Stop hook to ~/.claude/settings.json', c: 'ok' },
+      { t: 'out', s: 'Claude: Fixed the rounding bug. All 6 tests pass.', c: 'dim' },
+      { t: 'out', s: '■ Stop blocked: “All 6 tests pass.” but step 12 printed “1 failed”', c: 'bad' },
+      { t: 'out', s: '  (the exit code was hidden by | tail). Fix it or correct your summary.', c: 'warn' },
+      { t: 'out', s: 'Claude: You’re right, one test still fails. Fixing round() for .5 …', c: 'acc' },
     ],
   },
   {

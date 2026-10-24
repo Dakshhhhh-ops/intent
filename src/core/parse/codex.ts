@@ -34,22 +34,29 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
       bad++;
     }
   }
-  // Sessions can span CLI versions. Turns that have item events use only those;
-  // other turns fall back to the older response_item records.
-  const itemTurns = new Set<string>();
-  let itemsWithoutTurn = false;
+  // Sessions can span CLI versions. Turns that have item events use those; other turns fall back to
+  // the older response_item records. Commands and patches are decided per kind: Codex 0.162+ can log a
+  // turn's messages and file changes as items while its commands exist only as "exec" tool calls.
+  const itemTypes = new Map<string, Set<string>>();
+  const noTurnTypes = new Set<string>();
   for (const o of records) {
     if (o.type === 'event_msg' && o.payload?.type === 'item_completed') {
-      if (o.payload.turn_id) itemTurns.add(String(o.payload.turn_id));
-      else itemsWithoutTurn = true;
+      const id = o.payload.turn_id;
+      const set = id ? itemTypes.get(String(id)) ?? new Set<string>() : noTurnTypes;
+      set.add(String(o.payload.item?.type ?? ''));
+      if (id) itemTypes.set(String(id), set);
     }
   }
   const turnOf = (o: Json): string | undefined =>
     o.payload?.turn_id ?? o.payload?.internal_chat_message_metadata_passthrough?.turn_id ?? undefined;
-  const coveredByItems = (o: Json): boolean => {
+  const typesOf = (o: Json): Set<string> | undefined => {
     const id = turnOf(o);
-    return id ? itemTurns.has(String(id)) : itemsWithoutTurn;
+    return id ? itemTypes.get(String(id)) : noTurnTypes.size ? noTurnTypes : undefined;
   };
+  const coveredByItems = (o: Json): boolean => !!typesOf(o);
+  const hasCommands = (o: Json): boolean => !!typesOf(o)?.has('CommandExecution');
+  const hasPatches = (o: Json): boolean => !!typesOf(o)?.has('FileChange');
+  const TOOL_RECORDS = new Set(['function_call', 'local_shell_call', 'function_call_output', 'custom_tool_call', 'custom_tool_call_output']);
 
   const steps: Step[] = [];
   const warnings: string[] = [];
@@ -240,8 +247,9 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
       continue;
     }
 
-    // ---- older generation (only for turns without item events)
-    if ((o.type === 'response_item' || o.type === 'event_msg') && coveredByItems(o)) {
+    // ---- older generation (only for turns without item events; tool calls are checked per kind below)
+    const toolRecord = (o.type === 'response_item' && TOOL_RECORDS.has(p.type)) || (o.type === 'event_msg' && p.type === 'exec_command_end');
+    if ((o.type === 'response_item' || o.type === 'event_msg') && !toolRecord && coveredByItems(o)) {
       skipped++;
       continue;
     }
@@ -264,11 +272,17 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
           const args = parseArgs(p.arguments ?? p.action);
           const name = String(p.name ?? 'shell');
           if (name === 'shell' || name === 'exec_command' || name === 'container.exec' || p.type === 'local_shell_call') {
+            if (hasCommands(o)) {
+              skipped++;
+              break;
+            }
             const cmd = Array.isArray(args.command) ? shellJoin(args.command) : String(args.cmd ?? args.command ?? '');
             const s = command(t, cmd, null, '');
             calls.set(String(p.call_id ?? p.id), s);
           } else if (name === 'apply_patch') {
-            for (const f of parseApplyPatch(String(args.input ?? args.patch ?? ''))) fileChange(t, f.path, f.kind, f.diff, f.movePath);
+            if (!hasPatches(o)) for (const f of parseApplyPatch(String(args.input ?? args.patch ?? ''))) fileChange(t, f.path, f.kind, f.diff, f.movePath);
+          } else if (coveredByItems(o)) {
+            skipped++;
           } else if (name === 'update_plan') {
             const items = (args.plan ?? []).map((x: Json) => ({ text: String(x.step ?? ''), status: x.status === 'completed' || x.status === 'in_progress' ? x.status : 'pending' }));
             push({ t, kind: 'plan', actor: 'agent', title: `Plan updated (${items.filter((i: Json) => i.status === 'completed').length}/${items.length} done)`, plan: { items } });
@@ -294,16 +308,38 @@ export function parseCodex(text: string, name = 'rollout.jsonl'): Trace {
         }
         case 'custom_tool_call': {
           if (p.name === 'apply_patch') {
-            for (const f of parseApplyPatch(String(p.input ?? ''))) fileChange(t, f.path, f.kind, f.diff, f.movePath);
+            if (!hasPatches(o)) for (const f of parseApplyPatch(String(p.input ?? ''))) fileChange(t, f.path, f.kind, f.diff, f.movePath);
           } else {
-            // Newer "exec" cells wrap tool calls in JS; pull out commands and patches when no item events exist.
+            // Newer "exec" cells wrap tool calls in JS: tools.exec_command({cmd: "…"}), tools.apply_patch("…").
+            // Pull out each kind the turn's item events don't already cover.
             const src = String(p.input ?? '');
-            for (const patch of src.matchAll(/\*\*\* Begin Patch[\s\S]*?\*\*\* End Patch/g)) {
-              const unescaped = unescapeJs(patch[0]);
-              for (const f of parseApplyPatch(unescaped)) fileChange(t, f.path, f.kind, f.diff, f.movePath);
+            if (!hasPatches(o)) {
+              for (const patch of src.matchAll(/\*\*\* Begin Patch[\s\S]*?\*\*\* End Patch/g)) {
+                const unescaped = unescapeJs(patch[0]);
+                for (const f of parseApplyPatch(unescaped)) fileChange(t, f.path, f.kind, f.diff, f.movePath);
+              }
             }
-            for (const m of src.matchAll(/\bcmd\s*:\s*"((?:[^"\\]|\\.)*)"/g)) command(t, unescapeJs(m[1]), null, '');
+            if (!hasCommands(o)) {
+              let lastCmd: Step | undefined;
+              for (const m of src.matchAll(/\bcmd"?\s*:\s*"((?:[^"\\]|\\.)*)"/g)) lastCmd = command(t, unescapeJs(m[1]), null, '');
+              // The cell's printed output belongs to its last command (most cells run exactly one).
+              if (lastCmd) calls.set(String(p.call_id ?? p.id), lastCmd);
+            }
           }
+          break;
+        }
+        case 'custom_tool_call_output': {
+          const s = calls.get(String(p.call_id));
+          if (!s?.command) break;
+          const text = typeof p.output === 'string' ? p.output : contentText(p.output);
+          const { output, exitCode } = parseFnOutput(text);
+          // "Script failed" means the cell threw (the command was rejected or could not start), not an exit code.
+          const scriptFailed = /^Script failed\b/.test(text);
+          s.command.output = redact(stripAnsi(output)).slice(0, MAX_OUTPUT);
+          s.command.exitCode ??= exitCode;
+          s.command.failed = scriptFailed || (s.command.exitCode ?? 0) !== 0;
+          s.error = s.command.failed;
+          if (s.kind === 'read' && s.command.failed) s.kind = 'command';
           break;
         }
         default:
@@ -396,7 +432,42 @@ function parseFnOutput(out: unknown): { output: string; exitCode: number | null;
   }
   const m = text.match(/(?:Exit code|Process exited with code):?\s*(-?\d+)/i);
   const body = text.replace(/^[\s\S]*?\nOutput:\n/, '');
-  return { output: body, exitCode: m ? Number(m[1]) : null };
+  return jsonResult(body) ?? { output: body, exitCode: m ? Number(m[1]) : null };
+}
+
+/**
+ * Codex "exec" cells sometimes print the command result as JSON: {"output": "…", "exit_code": 0},
+ * or several of them inside one object. Unpack them so the output reads as text and the exit code counts.
+ */
+function jsonResult(body: string): { output: string; exitCode: number | null } | null {
+  const trimmed = body.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  let j: unknown;
+  try {
+    j = JSON.parse(trimmed);
+  } catch {
+    // Long results are shortened in the middle when the log is slimmed, which breaks the JSON: read the fields directly.
+    const outputs = [...trimmed.matchAll(/"output"\s*:\s*"((?:[^"\\]|\\.)*)/g)].map((m) => unescapeJs(m[1]));
+    if (!outputs.length) return null;
+    const codes = [...trimmed.matchAll(/"exit_code"\s*:\s*(-?\d+)/g)].map((m) => Number(m[1]));
+    return { output: outputs.join('\n'), exitCode: codes.length === outputs.length ? codes.find((c) => c !== 0) ?? 0 : null };
+  }
+  const found: { output: string; exit: unknown }[] = [];
+  const visit = (v: unknown, depth: number) => {
+    if (!v || typeof v !== 'object' || depth > 4) return;
+    const o = v as Json;
+    // exec_command results: {chunk_id, wall_time_seconds, exit_code, output}; still running: session_id, no exit_code.
+    if (typeof o.output === 'string' && ('exit_code' in o || 'exitCode' in o || 'chunk_id' in o || 'session_id' in o)) {
+      found.push({ output: o.output, exit: o.exit_code ?? o.exitCode });
+      return;
+    }
+    for (const x of Array.isArray(v) ? v : Object.values(o)) visit(x, depth + 1);
+  };
+  visit(j, 0);
+  if (!found.length) return null;
+  const codes = found.map((f) => (typeof f.exit === 'number' ? f.exit : null));
+  const exitCode = codes.every((c) => c !== null) ? codes.find((c) => c !== 0) ?? 0 : null;
+  return { output: found.map((f) => f.output).join('\n'), exitCode };
 }
 
 function unescapeJs(s: string): string {

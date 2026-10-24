@@ -182,6 +182,34 @@ export class CodexLog {
     return this.rec('response_item', payload);
   }
 
+  /**
+   * Codex 0.162+ "exec" cell: a JS snippet calling tools.exec_command, logged as a custom tool call
+   * (no CommandExecution item). `json` prints the whole result object, as some cells do.
+   */
+  execCell(cmd: string, opts: { output?: string; exit?: number; json?: boolean; failed?: string } = {}, turnId = this.turnId): this {
+    const callId = `call_${this.n + 1}`;
+    const meta = { internal_chat_message_metadata_passthrough: { turn_id: turnId } };
+    const input = opts.json
+      ? `const r = await tools.exec_command({cmd:${JSON.stringify(cmd)},"max_output_tokens":2000}); text(JSON.stringify(r))\n`
+      : `const r = await tools.exec_command({cmd:${JSON.stringify(cmd)},"workdir":"/work/app","max_output_tokens":2000}); text(r.output)\n`;
+    this.responseItem({ type: 'custom_tool_call', status: 'completed', call_id: callId, name: 'exec', input, ...meta });
+    const body = opts.failed
+      ? [{ type: 'input_text', text: 'Script failed\nWall time 0.4 seconds\nOutput:\n' }, { type: 'input_text', text: `Script error:\n${opts.failed}` }]
+      : [
+          { type: 'input_text', text: 'Script completed\nWall time 1.2 seconds\nOutput:\n' },
+          { type: 'input_text', text: opts.json ? JSON.stringify({ chunk_id: 'a1', wall_time_seconds: 1.2, exit_code: opts.exit ?? 0, original_token_count: 10, output: opts.output ?? '' }) : opts.output ?? '' },
+        ];
+    return this.responseItem({ type: 'custom_tool_call_output', call_id: callId, output: body, ...meta });
+  }
+
+  /** A file edit inside an exec cell (tools.apply_patch). */
+  patchCell(patch: string, turnId = this.turnId): this {
+    const callId = `call_${this.n + 1}`;
+    const meta = { internal_chat_message_metadata_passthrough: { turn_id: turnId } };
+    this.responseItem({ type: 'custom_tool_call', status: 'completed', call_id: callId, name: 'exec', input: `const patch = ${JSON.stringify(patch)}; text(await tools.apply_patch(patch));\n`, ...meta });
+    return this.responseItem({ type: 'custom_tool_call_output', call_id: callId, output: [{ type: 'input_text', text: 'Script completed\nWall time 0.1 seconds\nOutput:\n' }, { type: 'input_text', text: 'Success.' }], ...meta });
+  }
+
   event(payload: Json): this {
     return this.rec('event_msg', payload);
   }

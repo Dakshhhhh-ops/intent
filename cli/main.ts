@@ -13,6 +13,7 @@ import type { Severity } from '../src/core/types';
 import { traceTag } from '../src/core/embed';
 import { exportHtmlPath, injectBoot, startServer } from './server';
 import { inside, listSessions, type SessionInfo } from './sessions';
+import { hookMain, installHook, settingsPath } from './hook';
 
 const VERSION = '0.1.0';
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -37,6 +38,7 @@ ${bold('Usage')}
   intent-replay check <target>       exit 1 if findings at/above a level [--fail-on high|medium|low]
   intent-replay export <target>      write a self-contained HTML replay  [-o replay.html]
   intent-replay audit                fact-check every local session at once, counts only [--json]
+  intent-replay hook install         check claims when Claude Code stops; a false one sends it back [--project]
 
 ${bold('Target')}  a key like ${cyan('s1abc23')} (stable) or a number from ${cyan('list')}, ${cyan('latest')}, or a path to a .jsonl / .json file
 
@@ -69,7 +71,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '-v') flags.version = true;
     else pos.push(a);
   }
-  const known = ['list', 'open', 'watch', 'report', 'check', 'export', 'audit', 'help'];
+  const known = ['list', 'open', 'watch', 'report', 'check', 'export', 'audit', 'hook', 'help'];
   if (pos[0] && !known.includes(pos[0])) return { cmd: 'open', target: pos[0], flags };
   return { cmd: pos[0] ?? 'picker', target: pos[1], flags };
 }
@@ -371,6 +373,19 @@ async function main() {
     }
     case 'audit':
       return audit(!!flags.json);
+    case 'hook': {
+      if (args.target === 'install') {
+        const script = fileURLToPath(import.meta.url);
+        const r = installHook(script, settingsPath(!!flags.project));
+        console.log(r.changed ? `${green('✓')} Added the Stop hook to ${r.path}` : `${green('✓')} The Stop hook is already in ${r.path}`);
+        console.log(dim(`  ${r.command}`));
+        if (/[\\/]_npx[\\/]/.test(script)) console.log(yellow('! This copy runs from the npx cache, which can be cleared. Install it first: npm i -g github:Dakshhhhh-ops/intent, then run intent-replay hook install.'));
+        console.log(dim('  From the next session on, a final message whose claims the log contradicts is sent back to the agent once.'));
+        return;
+      }
+      if (process.stdin.isTTY) return console.log('Claude Code runs this as a Stop hook (it reads the hook input on stdin). To set it up: intent-replay hook install');
+      return hookMain();
+    }
     case 'export': {
       const t = resolveTarget(args.target, !!flags.all);
       const { trace } = load(t.path);

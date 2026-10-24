@@ -119,7 +119,7 @@ export function Home({
           }}
         />
       )}
-      {hero && <CineHero trace={hero.trace} analysis={hero.analysis} ready={ready} onOpen={() => onSample(hero.id)} onPick={pick} />}
+      {hero && <CineHero trace={hero.trace} analysis={hero.analysis} ready={ready} onOpen={() => onSample(hero.id)} onPick={pick} source={hero.label === 'Real session' ? `Real ${hero.agent} session` : hero.label} />}
 
       <div className="h-wrap">
         {sessions && (

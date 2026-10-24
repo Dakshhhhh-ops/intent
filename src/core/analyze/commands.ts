@@ -47,7 +47,10 @@ const RULES: [CommandCategory, RegExp][] = [
 export function shellCode(cmd: string): string {
   return cmd
     .replace(/<<-?\s*(['"]?)([\w.-]+)\1([^\n]*)\n[\s\S]*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)/g, (_m, _q, _tag, rest: string) => `<<HEREDOC${rest}`)
-    .replace(/(\s-[mF]\s*|\s--message[= ])("(?:[^"\\]|\\.)*"|'[^']*')/g, '$1""');
+    .replace(/(\s-[mF]\s*|\s--message[= ])("(?:[^"\\]|\\.)*"|'[^']*')/g, '$1""')
+    // Inline scripts (node -e "…", python -c "…") are code, not commands: a script that mentions
+    // "test" or crashes is not a test run.
+    .replace(/(\b(?:node|deno|bun|python3?|py|ruby|perl|php)(?:\.exe)?(?:\s+-{1,2}[\w-]+(?:=\S+)?)*?\s+(?:-e|-c|-p|--eval|--print))\s+("(?:[^"\\]|\\.)*"|'[^']*')/g, '$1 ""');
 }
 
 export function classifyCommand(cmd: string): CommandCategory[] {

@@ -58,3 +58,41 @@ describe('secretKinds', () => {
     expect(secretKinds(undefined)).toEqual([]);
   });
 });
+
+describe('redact: common credential formats (from a security audit)', () => {
+  it.each([
+    ['Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123', 'abcdefghijklmnopqrstuvwxyz0123'],
+    ['postgres://admin:Sup3rS3cretPw@db.example.com:5432/app', 'Sup3rS3cretPw'],
+    ['npm_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8', 'npm_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'],
+    ['hf_' + 'abcdefghijklmnopqrstuvwxyzABCDEFGH', 'hf_' + 'abcdefghijklmnopqrstuvwxyzABCDEFGH'],
+    ['glpat-' + 'abcdefghij0123456789', 'glpat-abcdefghij0123456789'],
+    ['SG.' + 'abcdefghijklmnopqrstuv' + '.' + 'ABCDEFGHIJKLMNOPQRSTUVWX', 'SG.abcdefghijklmnopqrstuv'],
+    ['{"password": "correct-horse-battery"}', 'correct-horse-battery'],
+    ['password: hunter2', 'hunter2'],
+    ['token: ' + 'g'.repeat(32), 'g'.repeat(32)],
+    ['DefaultEndpointsProtocol=https;AccountName=x;AccountKey=' + 'Q'.repeat(40) + '==;', 'Q'.repeat(40)],
+    ['STRIPE_SECRET=' + 'whsec_abcdefghijklmnop', 'whsec_abcdefghijklmnop'],
+    ['OPENAI_KEY=sk-' + 'z'.repeat(30), 'z'.repeat(30)],
+  ])('masks %s', (text, secret) => {
+    expect(redact(text)).not.toContain(secret);
+    expect(redact(text)).toContain('«secret:');
+  });
+
+  it.each([
+    'interface Props { token: string; password?: string }',
+    'const password = input.value;',
+    'password: ${DB_PASSWORD}',
+    'api_key = process.env.API_KEY',
+    'Reset your password from the settings page.',
+    'git clone https://github.com/Dakshhhhh-ops/intent',
+  ])('leaves code and prose alone: %s', (text) => {
+    expect(redact(text)).toBe(text);
+  });
+});
+
+describe('redact: prose about passing checks', () => {
+  it('leaves "checks pass: backend, web" alone', () => {
+    const t = 'All three CI checks pass: backend, web and Docker.';
+    expect(redact(t)).toBe(t);
+  });
+});

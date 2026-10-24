@@ -29,6 +29,7 @@ const KIND_TEXT: Record<ClaimKind, string> = {
   'build-pass': 'build',
   'typecheck-pass': 'types',
   'lint-pass': 'lint',
+  'ci-pass': 'CI',
   fixed: 'fix',
   'only-changed': 'scope',
   'no-test-changes': 'tests untouched',

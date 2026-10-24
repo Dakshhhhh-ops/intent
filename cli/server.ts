@@ -1,13 +1,19 @@
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootTag, injectIntoHead, stripInjected } from '../src/core/embed';
 import { slimBytes } from '../src/core/parse/slim';
+import { redact } from '../src/core/redact';
 import type { SessionInfo } from './sessions';
 
-// A tiny local server: the viewer page plus the raw logs it asks for.
-// Binds to 127.0.0.1 only.
+// A tiny local server: the viewer page plus the logs it asks for.
+// Binds to 127.0.0.1 only, and on top of that:
+// - answers only requests addressed to 127.0.0.1 or localhost on its own port, which stops a web
+//   page from reaching it through DNS rebinding;
+// - requires a random per-run token (in the link the CLI opens, and in every API path);
+// - masks secrets before a log leaves the process.
 
 export function viewerHtmlPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +21,13 @@ export function viewerHtmlPath(): string {
   const hit = candidates.find((p) => existsSync(p));
   if (!hit) throw new Error('Viewer build not found. Run `npm run build` first.');
   return hit;
+}
+
+/** The lighter page for exported replays (no home page or 3D code); falls back to the full viewer. */
+export function exportHtmlPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [resolve(here, '../dist-export/export.html'), resolve(here, '../../dist-export/export.html'), resolve(process.cwd(), 'dist-export/export.html')];
+  return candidates.find((p) => existsSync(p)) ?? viewerHtmlPath();
 }
 
 export function injectBoot(html: string, boot: object, extra = ''): string {
@@ -27,8 +40,10 @@ export function startServer(opts: {
   port: number;
   cwd: string;
   live?: boolean;
-}): Promise<{ server: Server; url: string }> {
+}): Promise<{ server: Server; url: string; token: string }> {
   const html = readFileSync(viewerHtmlPath(), 'utf8');
+  const token = randomBytes(18).toString('base64url');
+  let boundPort = opts.port;
   const extraFiles = new Map<string, string>();
   if (opts.initial) extraFiles.set(opts.initial.id, opts.initial.path);
 
@@ -39,9 +54,18 @@ export function startServer(opts: {
       res.end(body);
     };
     try {
-      if (url.pathname === '/' || url.pathname === '/index.html') {
-        return send(200, 'text/html; charset=utf-8', injectBoot(html, { api: '/api', session: opts.initial?.id ?? null, cwd: opts.cwd, live: !!opts.live }));
+      const host = (req.headers.host ?? '').toLowerCase();
+      if (host !== `127.0.0.1:${boundPort}` && host !== `localhost:${boundPort}`) {
+        return send(403, 'text/plain', 'Forbidden: this server only answers requests to 127.0.0.1 or localhost.');
       }
+      if (url.pathname === '/' || url.pathname === '/index.html') {
+        if (url.searchParams.get('token') !== token) {
+          return send(403, 'text/plain; charset=utf-8', 'Open the link printed in the terminal (it includes an access token).');
+        }
+        return send(200, 'text/html; charset=utf-8', injectBoot(html, { api: `/api/${token}`, session: opts.initial?.id ?? null, cwd: opts.cwd, live: !!opts.live }));
+      }
+      if (!url.pathname.startsWith(`/api/${token}/`)) return send(404, 'text/plain', 'Not found');
+      url.pathname = url.pathname.slice(`/api/${token}`.length).replace(/^/, '/api');
       if (url.pathname === '/api/sessions') {
         const list = opts.sessions().map(({ path: _p, ...rest }) => rest);
         return send(200, 'application/json', JSON.stringify(list));
@@ -55,8 +79,8 @@ export function startServer(opts: {
           const st = statSync(path);
           return send(200, 'application/json', JSON.stringify({ size: st.size, mtime: st.mtimeMs }));
         }
-        // Slimmed: API request dumps and base64 images never reach the browser.
-        return send(200, 'text/plain; charset=utf-8', slimBytes(readFileSync(path)));
+        // Slimmed (no API request dumps or base64 images) and masked before it leaves this process.
+        return send(200, 'text/plain; charset=utf-8', redact(slimBytes(readFileSync(path))));
       }
       send(404, 'text/plain', 'Not found');
     } catch (e) {
@@ -73,7 +97,10 @@ export function startServer(opts: {
           tryListen();
         } else reject(err);
       });
-      server.listen(port, '127.0.0.1', () => resolveP({ server, url: `http://127.0.0.1:${port}/` }));
+      server.listen(port, '127.0.0.1', () => {
+        boundPort = port;
+        resolveP({ server, url: `http://127.0.0.1:${port}/?token=${token}`, token });
+      });
     };
     tryListen();
   });

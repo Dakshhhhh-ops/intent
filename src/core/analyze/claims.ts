@@ -8,13 +8,19 @@ import { exitReflectsChecks, failedAs, failureHeadline, isVerify, looksAtCi, mas
 interface Pattern {
   kind: ClaimKind;
   re: RegExp;
+  /** The phrase is positive even though it contains "fail" or "broken" ("no tests fail", "nothing is broken"). */
+  negativeWords?: boolean;
 }
 
 const PATTERNS: Pattern[] = [
   { kind: 'tests-pass', re: /\b(?:all\s+)?(?:the\s+)?(?:\d+\s+)?(?:unit\s+|e2e\s+|integration\s+)?(?:tests?|test suite|specs?)\b[^.;\n]{0,60}?(?<!-)\b(?:pass(?:es|ing|ed)?|green|succeed(?:s|ed)?|are ok|all ok)\b/i },
   { kind: 'tests-pass', re: /\b\d+\s*(?:\/\s*\d+\s*)?(?:tests?\s+)?passed\b|\bpassing tests?\b|\btests? (?:are|is) (?:now )?(?:passing|green)\b/i },
+  // "No tests fail", "zero failures", "0 failing": positive, though they contain "fail".
+  { kind: 'tests-pass', re: /\b(?:no|zero|0)\s+(?:tests?\s+)?(?:fail(?:s|ed|ing|ures?)?)\b/i, negativeWords: true },
+  // "The suite passes locally", "Everything passes now", "Tests: ✅".
+  { kind: 'tests-pass', re: /\b(?:the\s+)?suite\s+(?:now\s+)?pass(?:es|ed)?\b|\beverything\s+(?:now\s+)?pass(?:es|ed)?\b|\btests?:?\s*(?:✅|✔️?|✓)/i },
   // "CI passes", "the GitHub Actions run is green": checked against a CI run, not local checks.
-  { kind: 'tests-pass', re: /\b(?:CI|GitHub Actions|[Tt]he (?:workflow|pipeline))\b[^.;]{0,30}\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?)\b/ },
+  { kind: 'ci-pass', re: /\b(?:CI|GitHub Actions|[Tt]he (?:workflow|pipeline))\b[^.;]{0,30}\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?)\b/ },
   { kind: 'build-pass', re: /\b(?:the\s+)?(?:build|compil(?:e|es|ation))\b[^.;\n]{0,40}?\b(?:pass(?:es)?|succeed(?:s|ed)?|works|clean(?:ly)?|green|successful(?:ly)?|is fine)\b|\bbuilds (?:cleanly|successfully|fine)\b|\bcompiles (?:cleanly|successfully|fine|without errors)\b/i },
   // "Types are clean", but not "counts by type and checks with pass icons": a bare "type" must be the subject.
   { kind: 'typecheck-pass', re: /\b(?:type[- ]?check(?:s|ing|er)?|tsc|mypy|pyright|types?\s+(?:are|is|check)\b)[^.;\n]{0,40}?\b(?:pass(?:es)?|clean|no (?:type )?errors|succeeds?)\b/i },
@@ -28,19 +34,42 @@ const PATTERNS: Pattern[] = [
   {
     kind: 'fixed',
     // "is fixed" but not "is fixed answers" / "are fixed architectures", where fixed describes a noun.
-    re: /\b(?:I|I['’]ve|I have|we|we['’]ve|we have)\s+(?:now\s+)?(?:fixed|resolved|solved)\b|\b(?:is|are|was|were|has been|have been|now)\s+(?:fixed|resolved)\b(?!\s+(?!(?:in|by|on|at|for|with|now|and|so|too|as|after|before|properly|correctly|completely|both|here|there|upstream|locally|already|again)\b)[a-z]{3,}\b)|^(?:Fixed|Resolved)\b(?!\s*:)|\bnow (?:works|passes|returns|handles|rounds)\b/i,
+    re: /\b(?:I|I['’]ve|I have|we|we['’]ve|we have)\s+(?:now\s+)?(?:fixed|resolved|solved)\b|\b(?:is|are|was|were|has been|have been|now)\s+(?:fixed|resolved)\b(?!\s+(?!(?:in|by|on|at|for|with|now|and|so|too|as|after|before|properly|correctly|completely|both|here|there|upstream|locally|already|again)\b)[a-z]{3,}\b)|^(?:Fixed|Resolved)\b(?!\s*:)|\bnow (?:works|passes|returns|handles|rounds)\b|\bI (?:verified|confirmed|checked) (?:that )?(?:it|the fix|this|everything) works\b/i,
   },
+  // "Nothing is broken", "nothing broke": a claim that the change is safe.
+  { kind: 'fixed', re: /\bnothing (?:is |was |got )?broken\b|\bnothing broke\b/i, negativeWords: true },
 ];
 
 const NEGATION = /(?:\b(?:not|unable|cannot|still fail(?:s|ing)?|fail(?:ed|s|ing)?|broken|except)\b|n['’]t\b)/i;
 // Noun phrases like "the previously failing tests" describe what was fixed, not a failure.
 const FAILING_NOUN = /\b(?:(?:previously|formerly|originally|the|a|two|three|\d+|all)\s+)?(?:failing|broken|flaky)\s+(?:tests?|specs?|cases?|checks?|builds?)\b/gi;
 
+/**
+ * A results-table row like "| Unit tests | 75 pass |" reads as a short claim. Rows with long prose
+ * cells ("| Design | 7 | The old problems are fixed… |") are review notes, not results.
+ */
+function tableRow(line: string): string | null {
+  const cells = line.split('|').map((c) => c.trim()).filter(Boolean);
+  if (!cells.length || cells.every((c) => /^:?-{2,}:?$/.test(c))) return null;
+  if (cells.length > 4 || cells.some((c) => c.length > 40)) return null;
+  return cells.join(' ');
+}
+
 export function sentencesOf(text: string): string[] {
   const noCode = text.replace(/```[\s\S]*?```/g, ' ');
   const out: string[] = [];
   for (const rawLine of noCode.split(/\n+/)) {
-    const line = rawLine.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').replace(/[*_#>]+/g, '').trim();
+    const raw = rawLine.trim();
+    // Headings, blockquotes and bold-only label lines are structure, not statements.
+    // A bold full sentence ("**The bug is fixed.**") is still a statement; a bold label is not.
+    if (/^#{1,6}\s/.test(raw) || /^>/.test(raw) || /^(?:[-*•]\s+)?\*\*[^*]*[^*.!]\*\*:?$/.test(raw)) continue;
+    let source = rawLine;
+    if (/^\|/.test(raw)) {
+      const row = tableRow(raw);
+      if (row === null) continue;
+      source = row;
+    }
+    const line = source.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').replace(/[*_#>]+/g, '').trim();
     if (!line) continue;
     for (const s of line.split(/(?<=[.!?])\s+(?=[A-Z`"'(])/)) {
       const t = s.trim();
@@ -64,15 +93,14 @@ export function findClaimsInText(text: string): { kind: ClaimKind; sentence: str
     // Advice, not a report: "Add a test that…", "Make sure the build passes".
     if (/^(?:Add|Make|Run|Write|Use|Keep|Try|Consider|Ensure|Update|Change|Remove|Rename|Move|Delete|Create|Set|Wire|Put|Turn)\b/.test(sentence)) continue;
     // Text in quotes is quoted, not claimed ("Now showing 12 claims: “All tests pass.” …").
-    const quoted = [...sentence.matchAll(/“[^”]*”|"[^"]*"/g)].map((q) => [q.index!, q.index! + q[0].length]);
+    const bare = sentence.replace(/“[^”]*”|"[^"]*"|‘[^’]*’/g, ' "…" ');
     const kinds = new Set<ClaimKind>();
     for (const p of PATTERNS) {
-      const m = sentence.match(p.re);
+      const m = bare.match(p.re);
       if (!m) continue;
       if (kinds.has(p.kind)) continue;
-      if (quoted.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
-      const cleaned = sentence.replace(/\b0\s+(failed|failing|failures|errors)\b/gi, '').replace(FAILING_NOUN, ' tests ');
-      if (p.kind !== 'no-test-changes' && p.kind !== 'only-changed' && NEGATION.test(cleaned)) continue;
+      const cleaned = bare.replace(/\b0\s+(failed|failing|failures|errors)\b/gi, '').replace(FAILING_NOUN, ' tests ');
+      if (!p.negativeWords && p.kind !== 'no-test-changes' && p.kind !== 'only-changed' && NEGATION.test(cleaned)) continue;
       if (p.kind === 'fixed' && (kinds.has('tests-pass') || kinds.has('build-pass'))) continue;
       if (p.kind === 'only-changed' && !extractFileRefs(m[1] ?? '').length) continue;
       kinds.add(p.kind);
@@ -107,11 +135,16 @@ export function checkClaims(steps: Step[], files: FileChange[]): Claim[] {
   const msgs = summaryMessages(steps);
   const seen = new Set<string>();
   for (const m of msgs) {
-    for (const f of findClaimsInText(m.text ?? '')) {
+    const found = findClaimsInText(m.text ?? '');
+    // A sentence with its own CI claim: its other claims are about local checks.
+    const withCi = new Set(found.filter((f) => f.kind === 'ci-pass').map((f) => f.sentence));
+    for (const f of found) {
       const key = `${m.turn}|${f.kind}|${f.sentence}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const verdict = evaluate(f.kind, f.match, m.id, steps, files);
+      // "Fixed" or "only changed X" with no edits at all before it is not about a change the agent made.
+      if ((f.kind === 'fixed' || f.kind === 'only-changed') && !steps.slice(0, m.id).some((s) => s.edit)) continue;
+      const verdict = evaluate(f.kind, f.match, m.id, steps, files, f.kind !== 'ci-pass' && withCi.has(f.sentence));
       claims.push({
         id: `c${claims.length}`,
         kind: f.kind,
@@ -268,6 +301,7 @@ function evaluate(
   at: number,
   steps: Step[],
   files: FileChange[],
+  localOnly = false,
 ): Pick<Claim, 'verdict' | 'explanation' | 'evidence'> {
   const before = steps.slice(0, at);
   // Changes to scratch files are not changes to the project.
@@ -276,7 +310,7 @@ function evaluate(
   const sentence = match.input ?? '';
 
   // A claim about CI can only be backed by a CI run, not by a local check.
-  if (isCiClaim(sentence)) {
+  if (kind === 'ci-pass' || (!localOnly && isCiClaim(sentence))) {
     const ci = before.filter((s) => s.command && looksAtCi(s.command.cmd));
     const lastCi = ci[ci.length - 1];
     if (!lastCi) {

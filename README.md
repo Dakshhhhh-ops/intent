@@ -10,19 +10,21 @@ When Claude Code or Codex finishes a task, you get a diff and a confident summar
 
 ## Measured on real sessions
 
-In October 2026, Intent Replay was run over every Claude Code and Codex session on the author's machine: 86 sessions (77 Claude Code, 9 Codex), from small fixes to multi-day builds.
+In October 2026, Intent Replay was run over every Claude Code and Codex session on the author's machine: 87 sessions (78 Claude Code, 9 Codex), from small fixes to multi-day builds.
 
-- **43** sessions ended with checkable claims (*tests pass*, *build passes*, *fixed*, *CI is green*, *only changed X*, *didn't touch the tests*): 517 claims in all.
-- In **8 of those 43 sessions (19%)**, the agent's own log contradicts at least one claim it made: **14 claims** in all. Typical cases: "123 tests pass" after the last full run had 2 failures and only one test file was re-run; "Tests: 133 pass" when the output, cut short by `| grep`, shows a failing assertion; "all 6 tests pass" next to `1 failed`. All 14 were reviewed by hand: 12 are clear contradictions and 2 are borderline (one command ran unit and browser tests together and the failure was in a unit test; one claim was hedged by the agent itself).
-- **319** claims are Supported, **174** Unverified and **10** Stale. Unverified is not a failure: it means the log holds no proof either way, for example a check that only ran in a scratch copy, a piped test run whose summary was cut off, or "CI is green" with no look at CI.
-- **29** sessions have at least one high-severity finding (secrets in the agent's context, failing checks hidden by a pipe, weakened tests, risky commands).
+- **41** sessions ended with checkable claims (*tests pass*, *build passes*, *fixed*, *CI is green*, *only changed X*, *didn't touch the tests*): 512 claims in all.
+- In **6 of those 41 sessions (15%)**, the agent's own log contradicts at least one claim it made: **12 claims** in all. Typical cases: "123 tests pass" after the last full run had 2 failures and only one test file was re-run; "Tests: 133 pass" when the output, cut short by `| grep`, shows a failing assertion; "all 6 tests pass" next to `1 failed`. All 12 were reviewed by hand: 10 are clear contradictions and 2 are borderline (one command ran unit and browser tests together and the failure was in a unit test; one claim was hedged by the agent itself).
+- **319** claims are Supported, **166** Unverified and **15** Stale. Unverified is not a failure: it means the log holds no proof either way, for example a check that only ran in a scratch copy, a piped test run whose summary was cut off, or "CI is green" with no look at CI.
+- **36** sessions have at least one high-severity finding, most often a credential that ended up in the agent's context, then failing checks hidden by a pipe, silenced errors and risky commands.
 - The biggest session, 530 MB, opens in the browser. Parsing it takes about 2 seconds (down from 7.7) because API request dumps and base64 screenshots are dropped before decoding.
 
 A green stamp has to be earned, so the Supported verdicts were reviewed too: three random samples of 30, each followed by fixes for whatever did not hold up. A passing check in a scratch copy no longer proves anything about the project; a claim about CI needs a CI run, read strictly and for the commit it names, and goes stale if new commits were pushed after the last look; a claim listing several fixes needs the full suite, not one narrow test; a test run counts only if its exit code is its own or its pass summary is still in the output; and "146 of 146 tests pass" backed by a run that printed `8 passed` is not proof. In the last sample, 27 of 30 Supported verdicts hold up; the other 3 rest on evidence that is related but weaker than the claim (for example a different workflow's CI run).
 
+An outside review then ran the tool on a long chat-style session and found it reading headings, review tables and quoted UI text as claims, and counting a crashing `node -e` script as a test run. Headings, blockquotes, bold labels, long table rows and quoted text are no longer read as claims; "fixed" needs the agent to have edited something; inline scripts (`node -e`, `python -c`) are not checks; and phrasings it used to miss ("No tests fail", "0 failing", "Tests: ✅", "Nothing is broken") are now caught. All of these cases live in a regression set ([`tests/claims-regression.test.ts`](tests/claims-regression.test.ts)) that runs in CI and reports precision and recall, so accuracy can't quietly slip back. The set was written from hand-reviewed cases after the fixes, so it guards against regressions; it is not an independent benchmark.
+
 Contradictions got the same treatment earlier: ESLint's `✖ 198 problems (0 errors, 198 warnings)` had been read as a failure, wrongly turning 28 true "all checks pass" claims into contradictions, and a failing test in a command that also ran `mypy` no longer counts against "mypy is clean". Noise came down too: findings went from 3,161 to 669 in the first round, and a check piped through `| tail` with nothing wrong in its output is now one note per run instead of one alarm per command.
 
-Run the same audit on your own machine. It prints counts only, and nothing leaves your computer:
+Run the same audit on your own machine. It prints counts and stable session keys (no titles or prompts, so the output is safe to share), caches results, and nothing leaves your computer:
 
 ```bash
 npx -y github:Dakshhhhh-ops/intent audit
@@ -72,7 +74,7 @@ intent-replay watch               # follow the newest session live while the age
 intent-replay report latest       # PR-ready Markdown (--out report.md, --json)
 intent-replay check latest        # exit 1 on high findings (--fail-on medium|low)
 intent-replay export latest -o replay.html   # one offline file, secrets masked
-intent-replay audit               # fact-check every local session at once (counts only, --json)
+intent-replay audit               # fact-check every local session at once (counts and keys only, --json)
 ```
 
 A target is a number from `intent-replay list`, `latest`, or a path to a `.jsonl` / `.json` file.
@@ -108,7 +110,9 @@ session log ──► parser ──► one timeline of steps ──► analyzer 
 3. **Analyze.** Steps are grouped into chapters, every rule runs, and claims from each turn's closing message are checked against the commands that ran before them.
 4. **Show.** The same core runs in the browser and in the CLI, so the web view, the Markdown report and the CI check always agree.
 
-Secrets (API keys, tokens, private keys, passwords) are masked as soon as a log is read, in the UI and in every export.
+Secrets are masked as soon as a log is read, in the UI, in every export and before the local server sends a log to the browser: provider keys (OpenAI, Anthropic, AWS, GitHub, GitLab, npm, Hugging Face, Slack, Stripe, SendGrid, Google), JWTs, private keys, `Bearer` tokens, passwords in URLs (`postgres://user:pass@…`), Azure connection strings, `NAME_KEY=` / `_TOKEN=` / `_SECRET=` assignments, and `password` / `token` / `api_key` values in JSON, YAML and config files. Masking is pattern-based, so review an export before sharing it outside your team.
+
+The local viewer (`intent-replay`) listens on 127.0.0.1 only, answers only requests addressed to `127.0.0.1` or `localhost` (which blocks DNS-rebinding attacks from other websites), and requires a random per-run token that is part of the link it opens.
 
 ## Formats
 
@@ -125,7 +129,7 @@ Secrets (API keys, tokens, private keys, passwords) are masked as soon as a log 
 | [`examples/csv-quotes-claude.intent.json`](examples/csv-quotes-claude.intent.json) | **Recorded run.** A real headless Claude Code session fixing quoted CSV fields. Clean. |
 | [`examples/csv-quotes-codex.intent.json`](examples/csv-quotes-codex.intent.json) | **Recorded run.** The same task given to Codex CLI. Clean. |
 
-The two CSV runs are clean, so they show what a passing check looks like. The Handrail session is one of the 14 real contradictions from [Measured on real sessions](#measured-on-real-sessions); run `intent-replay audit` to find them in your own logs.
+The two CSV runs are clean, so they show what a passing check looks like. The Handrail session is one of the 12 real contradictions from [Measured on real sessions](#measured-on-real-sessions); run `intent-replay audit` to find them in your own logs.
 
 Recorded runs were imported with [`scripts/import-run.ts`](scripts/import-run.ts), which rewrites machine paths and refuses to write a file that still contains personal data.
 

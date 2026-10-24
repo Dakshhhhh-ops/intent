@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { availableParallelism, cpus, tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
+import { basename, dirname, join, resolve } from 'node:path';
 import { analyze, RULE_INFO } from '../src/core/analyze';
 import { parseTrace } from '../src/core/parse/detect';
 import { slimBytes } from '../src/core/parse/slim';
@@ -8,7 +11,7 @@ import { toIntentTrace } from '../src/core/parse/intentTrace';
 import { formatDuration, toMarkdown } from '../src/core/report/markdown';
 import type { Severity } from '../src/core/types';
 import { traceTag } from '../src/core/embed';
-import { injectBoot, startServer, viewerHtmlPath } from './server';
+import { exportHtmlPath, injectBoot, startServer } from './server';
 import { inside, listSessions, type SessionInfo } from './sessions';
 
 const VERSION = '0.1.0';
@@ -35,7 +38,7 @@ ${bold('Usage')}
   intent-replay export <target>      write a self-contained HTML replay  [-o replay.html]
   intent-replay audit                fact-check every local session at once, counts only [--json]
 
-${bold('Target')}  a number from ${cyan('list')}, ${cyan('latest')}, or a path to a .jsonl / .json file
+${bold('Target')}  a key like ${cyan('s1abc23')} (stable) or a number from ${cyan('list')}, ${cyan('latest')}, or a path to a .jsonl / .json file
 
 ${bold('Options')}
   --port <n>    port for the local viewer (default 4848)
@@ -83,8 +86,9 @@ function resolveTarget(target: string | undefined, all: boolean): { path: string
   const { list } = scoped(all);
   if (!list.length) fail('No Claude Code or Codex sessions found. Pass a path to a .jsonl file instead.');
   if (!target || target === 'latest') return { path: list[0].path, label: list[0].title };
-  const hit = list.find((s) => s.id === target);
-  if (!hit) fail(`No session "${target}". Run ${cyan('intent-replay list')} to see numbers.`);
+  // A stable key (from `list` or `audit`) works across folders and doesn't shift when new sessions appear.
+  const hit = list.find((s) => s.id === target || s.key === target) ?? listSessions().find((s) => s.key === target);
+  if (!hit) fail(`No session "${target}". Run ${cyan('intent-replay list')} to see keys and numbers.`);
   return { path: hit!.path, label: hit!.title };
 }
 
@@ -117,7 +121,7 @@ function printList(all: boolean) {
   console.log(dim(scopedToCwd ? `Sessions for ${process.cwd()}` : 'Recent sessions (all folders)'));
   for (const s of list.slice(0, 30)) {
     const agent = s.agent === 'claude-code' ? violet('claude') : cyan('codex ');
-    console.log(`${dim(s.id.padStart(3))}  ${agent}  ${dim(ago(s.mtime).padEnd(9))} ${s.title.slice(0, 80)}`);
+    console.log(`${dim(s.id.padStart(3))}  ${cyan(s.key.padEnd(9))} ${agent}  ${dim(ago(s.mtime).padEnd(9))} ${s.title.slice(0, 70)}`);
   }
   if (list.length > 30) console.log(dim(`  … ${list.length - 30} more`));
 }
@@ -160,31 +164,125 @@ function printSummary(path: string) {
   }
 }
 
+/** One session's audit result: counts only, nothing from the log itself. */
+interface AuditSummary {
+  verdicts: Record<string, number>;
+  contradicted: number;
+  high: number;
+  highRules: Record<string, number>;
+}
+
+function summarize(path: string): AuditSummary {
+  const { analysis: a } = load(path);
+  const verdicts: Record<string, number> = { supported: 0, contradicted: 0, stale: 0, unverified: 0 };
+  for (const c of a.claims) verdicts[c.verdict]++;
+  const highRules: Record<string, number> = {};
+  for (const f of a.findings) if (f.severity === 'high') highRules[f.rule] = (highRules[f.rule] ?? 0) + 1;
+  return { verdicts, contradicted: verdicts.contradicted, high: a.findings.filter((f) => f.severity === 'high').length, highRules };
+}
+
+/** Worker thread: summarize the sessions it was given and report each one back. */
+function auditWorker() {
+  const paths = (workerData as { paths: string[] }).paths;
+  for (const path of paths) {
+    try {
+      parentPort!.postMessage({ path, summary: summarize(path) });
+    } catch {
+      parentPort!.postMessage({ path, summary: null });
+    }
+  }
+}
+
+// Results are cached per file (size + modified time) and per build of this CLI, so a second audit is instant.
+const CACHE = join(tmpdir(), 'intent-replay', 'audit-cache.json');
+type Cache = { build: string; entries: Record<string, { size: number; mtime: number; summary: AuditSummary | null }> };
+
+function buildId(): string {
+  try {
+    return `${VERSION}:${statSync(fileURLToPath(import.meta.url)).mtimeMs}`;
+  } catch {
+    return VERSION;
+  }
+}
+
+function readCache(): Cache {
+  try {
+    const c = JSON.parse(readFileSync(CACHE, 'utf8')) as Cache;
+    if (c.build === buildId()) return c;
+  } catch {
+    /* no cache yet */
+  }
+  return { build: buildId(), entries: {} };
+}
+
 /** Every local session at once: how often did an agent claim something its own log contradicts? Counts only. */
-function audit(json: boolean) {
+async function audit(json: boolean) {
   const list = listSessions();
   if (!list.length) fail('No Claude Code or Codex sessions found in ~/.claude/projects or ~/.codex/sessions.');
   const t0 = Date.now();
+  const cache = readCache();
+  const results = new Map<string, AuditSummary | null>();
+  const todo: SessionInfo[] = [];
+  for (const s of list) {
+    const hit = cache.entries[s.path];
+    if (hit && hit.size === s.size && hit.mtime === s.mtime) results.set(s.path, hit.summary);
+    else todo.push(s);
+  }
+  if (todo.length) {
+    // Biggest sessions first, each to the least-loaded worker, so one huge log doesn't hold up the rest.
+    const n = Math.max(1, Math.min(4, (availableParallelism?.() ?? cpus().length) - 1, todo.length));
+    const buckets: { paths: string[]; bytes: number }[] = Array.from({ length: n }, () => ({ paths: [], bytes: 0 }));
+    for (const s of [...todo].sort((a, b) => b.size - a.size)) {
+      const b = buckets.reduce((m, x) => (x.bytes < m.bytes ? x : m));
+      b.paths.push(s.path);
+      b.bytes += s.size;
+    }
+    let done = 0;
+    const byPath = new Map(todo.map((s) => [s.path, s]));
+    await Promise.all(
+      buckets.map(
+        (b) =>
+          new Promise<void>((resolveP) => {
+            const w = new Worker(fileURLToPath(import.meta.url), { workerData: { paths: b.paths }, resourceLimits: { maxOldGenerationSizeMb: 4096 } });
+            w.on('message', (m: { path: string; summary: AuditSummary | null }) => {
+              results.set(m.path, m.summary);
+              const s = byPath.get(m.path)!;
+              cache.entries[m.path] = { size: s.size, mtime: s.mtime, summary: m.summary };
+              done++;
+              if (!json) process.stderr.write(`\r${dim(`Checking ${done}/${todo.length}…`)}`);
+            });
+            w.on('error', () => resolveP());
+            w.on('exit', () => resolveP());
+          }),
+      ),
+    );
+    try {
+      mkdirSync(dirname(CACHE), { recursive: true });
+      writeFileSync(CACHE, JSON.stringify(cache));
+    } catch {
+      /* caching is a convenience */
+    }
+  }
+
   const verdicts: Record<string, number> = { supported: 0, contradicted: 0, stale: 0, unverified: 0 };
   const rules: Record<string, number> = {};
-  const caught: { id: string; title: string; n: number }[] = [];
+  const caught: { session: SessionInfo; n: number }[] = [];
   let withClaims = 0;
   let risky = 0;
   let failed = 0;
-  list.forEach((s, i) => {
-    if (!json) process.stderr.write(`\r${dim(`Checking ${i + 1}/${list.length}…`)}`);
-    try {
-      const { analysis: a } = load(s.path);
-      if (a.claims.length) withClaims++;
-      for (const c of a.claims) verdicts[c.verdict]++;
-      const n = a.claims.filter((c) => c.verdict === 'contradicted').length;
-      if (n) caught.push({ id: s.id, title: s.title, n });
-      if (a.findings.some((f) => f.severity === 'high')) risky++;
-      for (const f of a.findings) if (f.severity === 'high') rules[f.rule] = (rules[f.rule] ?? 0) + 1;
-    } catch {
+  for (const s of list) {
+    const r = results.get(s.path);
+    if (!r) {
       failed++;
+      continue;
     }
-  });
+    const total = Object.values(r.verdicts).reduce((x, y) => x + y, 0);
+    if (total) withClaims++;
+    for (const [k, v] of Object.entries(r.verdicts)) verdicts[k] += v;
+    if (r.contradicted) caught.push({ session: s, n: r.contradicted });
+    if (r.high) risky++;
+    for (const [k, v] of Object.entries(r.highRules)) rules[k] = (rules[k] ?? 0) + v;
+  }
   const claims = Object.values(verdicts).reduce((x, y) => x + y, 0);
   const result = {
     sessions: list.length,
@@ -197,22 +295,25 @@ function audit(json: boolean) {
     sessionsWithContradictedClaim: caught.length,
     sessionsWithHighFinding: risky,
     highFindingsByRule: rules,
+    // Stable keys only: no titles or prompts, so this output is safe to share.
+    contradictedSessions: caught.map((c) => ({ key: c.session.key, agent: c.session.agent, contradicted: c.n })),
     seconds: Math.round((Date.now() - t0) / 100) / 10,
+    fromCache: list.length - todo.length,
   };
   if (json) return console.log(JSON.stringify(result, null, 2));
   process.stderr.write('\r' + ' '.repeat(30) + '\r');
-  const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '0%');
-  console.log(`${bold(`Audited ${list.length} sessions`)} ${dim(`(${result.claudeCode} Claude Code, ${result.codex} Codex) in ${result.seconds}s · nothing leaves this machine`)}`);
-  console.log(`  ${withClaims} ended with checkable claims ${dim('(tests pass, build passes, fixed, only changed X…)')}, ${claims} claims in all`);
+  const pct = (x: number, d: number) => (d ? `${Math.round((x / d) * 100)}%` : '0%');
+  console.log(`${bold(`Audited ${list.length} sessions`)} ${dim(`(${result.claudeCode} Claude Code, ${result.codex} Codex) in ${result.seconds}s${result.fromCache ? `, ${result.fromCache} from cache` : ''} · counts only, nothing leaves this machine`)}`);
+  console.log(`  ${withClaims} ended with checkable claims ${dim('(tests pass, build passes, CI is green, fixed, only changed X…)')}, ${claims} claims in all`);
   console.log(`  ${red('✗')} ${bold(String(verdicts.contradicted))} contradicted by the agent's own log, in ${bold(String(caught.length))} sessions ${dim(`(${pct(caught.length, withClaims)} of sessions with claims)`)}`);
-  console.log(`  ${yellow('~')} ${verdicts.stale} stale, ${verdicts.unverified} never verified   ${green('✓')} ${verdicts.supported} supported`);
+  console.log(`  ${yellow('~')} ${verdicts.stale} stale, ${verdicts.unverified} unproven   ${green('✓')} ${verdicts.supported} supported`);
   console.log(`  ${red('■')} ${risky} sessions with a high-severity finding`);
   const top = Object.entries(rules).sort((a, b) => b[1] - a[1]).slice(0, 5);
   if (top.length) console.log(dim(`    ${top.map(([r, n]) => `${RULE_INFO[r as keyof typeof RULE_INFO].name.toLowerCase()} ${n}`).join(' · ')}`));
   if (caught.length) {
-    console.log(`\n${bold('Where the log disagrees')}`);
-    for (const c of caught.slice(0, 10)) console.log(`  ${dim(c.id.padStart(3))}  ${red(`${c.n}×`)} ${c.title.slice(0, 70)}`);
-    console.log(dim(`\n  Open one: intent-replay open <number> --all`));
+    console.log(`\n${bold('Where the log disagrees')} ${dim('(stable keys; titles are left out so this is safe to paste)')}`);
+    for (const c of caught.slice(0, 10)) console.log(`  ${cyan(c.session.key.padEnd(9))} ${dim(c.session.agent === 'codex' ? 'codex ' : 'claude')}  ${red(`${c.n}×`)} ${dim(ago(c.session.mtime))}`);
+    console.log(dim(`\n  Open one: intent-replay open <key>`));
   }
   if (failed) console.log(dim(`  ${failed} sessions could not be read.`));
 }
@@ -274,7 +375,7 @@ async function main() {
       const t = resolveTarget(args.target, !!flags.all);
       const { trace } = load(t.path);
       const out = typeof flags.out === 'string' ? flags.out : `intent-replay-${trace.id.slice(0, 8)}.html`;
-      const html = readFileSync(viewerHtmlPath(), 'utf8');
+      const html = readFileSync(exportHtmlPath(), 'utf8');
       writeFileSync(out, injectBoot(html, { embedded: true }, traceTag(toIntentTrace(trace))));
       console.log(`${green('✓')} wrote ${out} ${dim('(self-contained, secrets masked)')}`);
       return;
@@ -284,4 +385,6 @@ async function main() {
   }
 }
 
-main().catch((e) => fail((e as Error).message));
+// The same file also runs as the audit worker threads.
+if (isMainThread) main().catch((e) => fail((e as Error).message));
+else auditWorker();

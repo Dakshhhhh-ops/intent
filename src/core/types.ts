@@ -169,6 +169,7 @@ export type ClaimKind =
   | 'build-pass'
   | 'typecheck-pass'
   | 'lint-pass'
+  | 'ci-pass'
   | 'fixed'
   | 'only-changed'
   | 'no-test-changes';

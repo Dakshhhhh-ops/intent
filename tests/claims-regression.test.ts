@@ -117,3 +117,16 @@ describe('scratch builds', () => {
     expect(checkClaims(r.steps, trackFiles(r.steps).changed).map((c) => c.verdict)).toEqual(['supported']);
   });
 });
+
+describe('edge cases from the second review', () => {
+  it.each([
+    ['Once the tests pass, deploy.', []],
+    ['Once I fixed the import, all tests pass.', ['tests-pass']],
+    ['Tests no longer fail on Windows.', ['tests-pass']],
+    ['The page now reads "the build is clean and all', []],
+    ['tests pass" in the footer.', []],
+  ])('%s', async (text, kinds) => {
+    const { findClaimsInText } = await import('../src/core/analyze/claims');
+    expect(findClaimsInText(text).map((c) => c.kind)).toEqual(kinds);
+  });
+});

@@ -9,7 +9,7 @@ interface Pattern {
 }
 
 // Key names that hold credentials, used by the "key: value" patterns below.
-const KEY = String.raw`(?:password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|apikey|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|token|private[_-]?key|connection[_-]?string)`;
+const KEY = String.raw`(?:[a-z][a-z0-9]*_(?:secret_access_key|secret_key|secret|token|password|api_key|private_key)|private_key_id|password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|apikey|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|token|private[_-]?key|connection[_-]?string)`;
 
 const PATTERNS: Pattern[] = [
   { kind: 'private-key', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
@@ -25,6 +25,11 @@ const PATTERNS: Pattern[] = [
   { kind: 'google-key', re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
   { kind: 'stripe-key', re: /\b(?:sk|rk)_(?:live|test)_[0-9a-zA-Z]{16,}\b/g },
   { kind: 'jwt', re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
+  // Webhook URLs carry their secret in the path.
+  { kind: 'slack-webhook', re: /\bhttps:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]+/g },
+  { kind: 'discord-webhook', re: /\bhttps:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]{20,}/g },
+  // curl -u user:password / --user user:password
+  { kind: 'basic-auth', re: /((?:\s-u\s*|\s--user[= ])["']?[^\s:"']+:)((?!\d+\b)[^\s"'@]{3,})/g, group: 2 },
   // Authorization: Bearer <token> / Basic <base64>
   { kind: 'bearer-token', re: /(\b(?:Bearer|Basic|Token)\s+)([A-Za-z0-9._~+\/-]{16,}=*)/g, group: 2 },
   // scheme://user:password@host
@@ -45,7 +50,9 @@ function placeholder(value: string): boolean {
     value.startsWith('«masked') ||
     /^\$\{?\w+\}?$/.test(value) ||
     /^process\.env/.test(value) ||
-    /\(|^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$.]*$/.test(value) ||
+    // Code like input.value or config.apiKey; not tokens like MTA5Nz…Gx7YzA.k3Lm (uppercase start or long digit runs).
+    /\(/.test(value) ||
+    (/^[a-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value) && !/\d{3,}/.test(value) && value.length <= 40) ||
     /^(?:string|number|boolean|null|undefined|true|false|none|any|object|unknown|required|optional|redacted|masked|example\w*|your[_-]?\w*|changeme|placeholder|<[^>]*>|\*+|x+|\.{3,}|•+)$/i.test(value)
   );
 }
@@ -86,6 +93,8 @@ export function redact(input: string): string {
         const prefix = (m[1] as string) ?? '';
         const value = (m[2] as string) ?? '';
         const suffix = typeof m[3] === 'string' ? m[3] : '';
+        // "LLM_API_KEY= python …" is a shell variable set to nothing; INI files ("aws_secret_access_key = …") use lowercase keys.
+        if (/\b[A-Z][A-Z0-9_]*=\s+["']?$/.test(prefix)) return m[0] as string;
         return placeholder(value) ? (m[0] as string) : `${prefix}${mark(value, m)}${suffix}`;
       });
     } else {

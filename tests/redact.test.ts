@@ -135,3 +135,30 @@ describe('redact: edge cases from a real-session review', () => {
     expect(secretKinds('Masked values become «secret:kind» so rules can see them.')).toEqual([]);
   });
 });
+
+const FAKE_DISCORD = ['MTA5MjQ3NjE0NTc5MzcxNzI4OA', 'Gx7YzA', 'k3LmQ9pR2vT8wZ4xB6nC1dF5gH0jK7sL3a'].join('.');
+const FAKE_HOOK = 'q8Zx3Lm9' + 'Vt2Rk7Wp' + '4Bn6Hd1F';
+
+describe('redact: second audit round', () => {
+  it.each([
+    ['curl -u admin:Sup3rS3cret99 https://api.example.com', 'Sup3rS3cret99'],
+    ['aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLEKEY', 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLEKEY'],
+    ['"private_key_id": "3f9a1c2b7d4e5f60718293a4b5c6d7e8f9012345"', '3f9a1c2b7d4e5f60718293a4b5c6d7e8f9012345'],
+    // Fake values assembled from parts, so repository secret scanners don't mistake the test for a leak.
+    ['DISCORD_TOKEN=' + FAKE_DISCORD, FAKE_DISCORD],
+    ['https://hooks.slack.' + 'com/services/T0ABCDEF1/B0GHIJKL2/' + FAKE_HOOK, FAKE_HOOK],
+  ])('masks %s', (text, secret) => {
+    expect(redact(text)).not.toContain(secret);
+  });
+
+  it('still leaves code paths alone', () => {
+    for (const t of ['token: config.apiToken', 'password = form.values.password']) expect(redact(t)).toBe(t);
+  });
+});
+
+describe('redact: user IDs are not passwords', () => {
+  it('leaves docker -u 1000:1000 alone', () => {
+    const t = 'docker run -u 1000:1000 node:20 npm test';
+    expect(redact(t)).toBe(t);
+  });
+});

@@ -17,6 +17,8 @@ const PATTERNS: Pattern[] = [
   { kind: 'tests-pass', re: /\b\d+\s*(?:\/\s*\d+\s*)?(?:tests?\s+)?passed\b|\bpassing tests?\b|\btests? (?:are|is) (?:now )?(?:passing|green)\b/i },
   // "No tests fail", "zero failures", "0 failing": positive, though they contain "fail".
   { kind: 'tests-pass', re: /\b(?:no|zero|0)\s+(?:tests?\s+)?(?:fail(?:s|ed|ing|ures?)?)\b/i, negativeWords: true },
+  // "Tests no longer fail on Windows."
+  { kind: 'tests-pass', re: /\btests?\s+(?:now\s+)?no longer\s+fail(?:s|ing)?\b|\bno longer\s+(?:any\s+)?failing\s+tests?\b/i, negativeWords: true },
   // "The suite passes locally", "Everything passes now", "Tests: ✅".
   { kind: 'tests-pass', re: /\b(?:the\s+)?suite\s+(?:now\s+)?pass(?:es|ed)?\b|\beverything\s+(?:now\s+)?pass(?:es|ed)?\b|\btests?:?\s*(?:✅|✔️?|✓)/i },
   // "CI passes", "the GitHub Actions run is green": checked against a CI run, not local checks.
@@ -79,6 +81,20 @@ export function sentencesOf(text: string): string[] {
   return out;
 }
 
+/**
+ * The sentence with quoted text blanked out. Handles quotes that open or close in a neighbouring
+ * sentence: an unmatched opening quote blanks the rest, an unmatched closing quote blanks the start.
+ */
+function unquoted(sentence: string): string {
+  // The stand-in has no quote characters, so it can't be mistaken for an unmatched quote below.
+  let s = sentence.replace(/“[^”]*”|"[^"]*"|‘[^’]*’/g, ' ‹quote› ');
+  const open = s.search(/“|(?:^|[\s(])"(?=\S)/);
+  const close = s.search(/”|(?<=\S)"(?=[\s,.;:!?)]|$)/);
+  if (open >= 0 && (close < 0 || close < open)) s = s.slice(0, open) + ' ‹quote›';
+  else if (close >= 0) s = '‹quote› ' + s.slice(close + 1);
+  return s;
+}
+
 export function findClaimsInText(text: string): { kind: ClaimKind; sentence: string; match: RegExpMatchArray }[] {
   const found: { kind: ClaimKind; sentence: string; match: RegExpMatchArray }[] = [];
   for (const sentence of sentencesOf(text)) {
@@ -86,6 +102,8 @@ export function findClaimsInText(text: string): { kind: ClaimKind; sentence: str
     if (/\bbeing (fixed|resolved)\b|\b(will|to|should|can|could|would|let me|i['’]ll|going to|need to|make sure)\s+(\w+\s+){0,4}(fix|run|pass|go green|be green|succeed|work)\b/i.test(sentence)) continue;
     // "assuming the blockers are fixed", "once it's fixed": a condition, not a claim.
     if (/\b(?:assuming|if|until|unless)\b[^.;]{0,50}\b(?:fixed|resolved|pass(?:es)?)\b/i.test(sentence)) continue;
+    // "Once the tests pass, deploy." is a condition; "Once I fixed it, all tests pass." is a claim.
+    if (/^once\b[^.;,]{0,60}\b(?:pass(?:es)?|fixed|green)\b\s*,/i.test(sentence)) continue;
     // Describing a README badge ("badges: tests passing, MIT license") is not reporting a result.
     if (/\bbadges?\b/i.test(sentence)) continue;
     // A rule, not a result: "I only commit when every test passes".
@@ -93,7 +111,7 @@ export function findClaimsInText(text: string): { kind: ClaimKind; sentence: str
     // Advice, not a report: "Add a test that…", "Make sure the build passes".
     if (/^(?:Add|Make|Run|Write|Use|Keep|Try|Consider|Ensure|Update|Change|Remove|Rename|Move|Delete|Create|Set|Wire|Put|Turn)\b/.test(sentence)) continue;
     // Text in quotes is quoted, not claimed ("Now showing 12 claims: “All tests pass.” …").
-    const bare = sentence.replace(/“[^”]*”|"[^"]*"|‘[^’]*’/g, ' "…" ');
+    const bare = unquoted(sentence);
     const kinds = new Set<ClaimKind>();
     for (const p of PATTERNS) {
       const m = bare.match(p.re);

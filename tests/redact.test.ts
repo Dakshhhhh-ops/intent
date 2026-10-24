@@ -156,6 +156,32 @@ describe('redact: second audit round', () => {
   });
 });
 
+describe('redact: third audit round', () => {
+  it.each([
+    ['wget --password=Qm7vX2kLp9 https://files.example.com/a.zip', 'Qm7vX2kLp9'],
+    ['wget --user=admin --http-password Qm7vX2kLp9 https://x.example.com', 'Qm7vX2kLp9'],
+    ['mysql -u root -pQm7vX2kLp9 app < dump.sql', 'Qm7vX2kLp9'],
+    ["mysqldump -uroot -p'Qm7vX2kLp9' app", 'Qm7vX2kLp9'],
+  ])('masks %s', (text, secret) => {
+    expect(redact(text)).not.toContain(secret);
+  });
+
+  it.each([
+    'docker login --password-stdin',
+    'mysql -u root -p app',
+    'mysql -h db -P 3306 -u root -p',
+    'wget --password=$WGET_PASS https://x.example.com',
+  ])('leaves alone: %s', (text) => {
+    expect(redact(text)).toBe(text);
+  });
+
+  it('names AWS secret keys and service-account key IDs', () => {
+    expect(secretKinds(redact('aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ8Lm3Vt7R'))).toEqual(['aws-secret-key']);
+    expect(secretKinds(redact('AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ8Lm3Vt7R'))).toEqual(['aws-secret-key']);
+    expect(secretKinds(redact('"private_key_id": "3f9a1c2b7d4e5f60718293a4b5c6d7e8f9012345"'))).toEqual(['gcp-key-id']);
+  });
+});
+
 describe('redact: user IDs are not passwords', () => {
   it('leaves docker -u 1000:1000 alone', () => {
     const t = 'docker run -u 1000:1000 node:20 npm test';

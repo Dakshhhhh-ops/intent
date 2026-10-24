@@ -430,6 +430,8 @@ const KIND_NAMES: Record<string, string> = {
   'slack-webhook': 'Slack webhook URL',
   'discord-webhook': 'Discord webhook URL',
   'azure-key': 'Azure key',
+  'aws-secret-key': 'AWS secret key',
+  'gcp-key-id': 'Google Cloud key ID',
   'env-secret': 'secret in an environment variable',
   password: 'password or token',
 };

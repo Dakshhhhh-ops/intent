@@ -30,6 +30,13 @@ const PATTERNS: Pattern[] = [
   { kind: 'discord-webhook', re: /\bhttps:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]{20,}/g },
   // curl -u user:password / --user user:password
   { kind: 'basic-auth', re: /((?:\s-u\s*|\s--user[= ])["']?[^\s:"']+:)((?!\d+\b)[^\s"'@]{3,})/g, group: 2 },
+  // wget --password=…, --http-password …, --ftp-passwd=… (not --password-stdin)
+  { kind: 'basic-auth', re: /(\s--(?:[a-z]+-)?(?:password|passwd)(?:=|\s+)["']?)([^\s"'-][^\s"']{2,})/g, group: 2 },
+  // mysql -pSECRET (the password is glued to -p; -p alone prompts, -P is the port)
+  { kind: 'basic-auth', re: /(\bmysql(?:dump|admin|sh)?\b[^\n|;&]*?\s-p["']?)([^\s"'-][^\s"']{2,})/g, group: 2 },
+  // AWS secret access keys and service-account key IDs, named so the finding says what leaked.
+  { kind: 'aws-secret-key', re: /(\baws_secret_access_key["']?\s*[:=]\s*["']?)([A-Za-z0-9\/+=]{30,})/gi, group: 2 },
+  { kind: 'gcp-key-id', re: /(["']private_key_id["']\s*:\s*["'])([a-f0-9]{20,})/g, group: 2 },
   // Authorization: Bearer <token> / Basic <base64>
   { kind: 'bearer-token', re: /(\b(?:Bearer|Basic|Token)\s+)([A-Za-z0-9._~+\/-]{16,}=*)/g, group: 2 },
   // scheme://user:password@host

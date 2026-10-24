@@ -1,6 +1,6 @@
 ---
 doc: checklist
-status: draft
+status: approved
 ---
 
 # Build Checklist
@@ -91,24 +91,27 @@ Build mode: fast
 
 ## Hands-on Checkpoints
 
-- [ ] Early usable behavior explored — after slice 3 (full run view on a sample)
-- [ ] Final kick-the-tires exploration and feedback completed
+- [x] Early usable behavior explored — after slice 3 (full run view on a sample)
+  The learner opened the run views on localhost and reacted with screenshots: the session list took too much space, the Findings and Brief screens looked too basic, and the home sections and hero needed a different direction. Each point led to a rebuild (session picker with search and filters, Findings with evidence cards, the Brief as a verdict page, a new hero and samples section).
+- [x] Final kick-the-tires exploration and feedback completed
+  The learner went through the deployed build several more times, bringing written reviews of it, and raised what still looked wrong: the hero covering its own headline, a slow loader, confusing "exit 0" badges, "Supported" stamps on weak evidence, scratch files in the totals, the report and the Brief disagreeing, and the replay opening on the wrong step. All were fixed and redeployed; see Revisions.
 
 ## Final Review
 
-- [ ] Final review complete — feedback resolved and learner confirms ready to ship
+- [x] Final review complete — feedback resolved and learner confirms ready to ship
+  Every point from the final round was resolved, with unit tests, browser tests and the build passing. The learner confirmed with "holds good". The demo video is still to be recorded in `6-ship`.
 
 ## Code Tour and App Map
 
-- [ ] Learning activity complete — guided route, focused alternative, prior practice connected, or brief recap
-- [ ] Optional edit and transfer reflection addressed — offered/declined/already covered/not applicable as appropriate
-- [ ] `devpost/app-map.html` generated from finished code, checked, and shown, including a project-grounded practice to reuse
+- [x] Learning activity complete — guided route, focused alternative, prior practice connected, or brief recap
+- [x] Optional edit and transfer reflection addressed — offered/declined/already covered/not applicable as appropriate
+- [x] `devpost/app-map.html` generated from finished code, checked, and shown, including a project-grounded practice to reuse
 
-Activity and evidence:
-Route and stops:
-Edit outcome:
-Reflection:
-Activity mode:
+Activity and evidence: A brief recap connected to practice that already happened during the build, not an interactive tour. The learner's own reviews of the deployed app drove a "measure on real data, then hand-check the answers" loop: the claim checker was run over 86 local sessions (`intent-replay audit`), every Contradicted verdict and three random samples of 30 Supported verdicts were checked by hand, and each mistake became a named test in `tests/claims.test.ts`. The app map's "A practice to reuse" section records this.
+Route and stops: Reference route in the app map, not toured interactively: `parseTrace` in `src/core/parse/detect.ts` → `checkClaims` / `weakProof` in `src/core/analyze/claims.ts` → `Brief` in `src/ui/Brief.tsx`.
+Edit outcome: Offered (change the Brief's replay button label and see it on refresh); not taken.
+Reflection: Offered ("What would you do differently next time you start with an agent?"); not answered.
+Activity mode: Brief recap plus app map (fast mode).
 
 ## Revisions
 
@@ -119,3 +122,6 @@ Activity mode:
 - HTML injection (CLI server, CLI export, in-app download) inserts before the last `</head>` with runtime-built tags — the viewer's own inlined JavaScript contains `</head>`, which broke the CLI-served page.
 - The keyboard shortcut listener is attached once and reads state from refs — re-attaching it on every step change dropped fast keypresses.
 - Live mode and Compare were built (they were listed under Later / Deferred) after the core was done, because the learner asked for as much depth as possible.
+- The claim check was measured on 86 real local sessions and reviewed by hand in both directions; this led to stricter proof for Supported (no scratch-copy evidence, CI claims need a CI run, test counts must match, piped results need a visible summary) and to `intent-replay audit`.
+- A real session (Handrail) was added as a public sample, trimmed and redacted with new `import-run` options (`--steps`, `--drop-files`, `--redact-lines`), because the learner's reviews pointed out that no clickable sample showed a real contradiction.
+- Home page sections were cut (CRT screen, gauges, marquee) and the loader shortened after review feedback that the page was overdone and slow to show its main button.

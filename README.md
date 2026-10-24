@@ -142,7 +142,7 @@ devpost/       planning documents: scope, PRD, spec, build checklist
 
 ## Built for Build With AI: Basics
 
-This project was planned and built with the Devpost Learn skill pack during the hackathon. The planning documents are in [`devpost/`](devpost): [scope](devpost/scope.md), [PRD](devpost/prd.md), [spec](devpost/spec.md) and the [build checklist](devpost/checklist.md).
+This project was planned and built with the Devpost Learn skill pack during the hackathon. The planning documents are in [`devpost/`](devpost): [scope](devpost/scope.md), [PRD](devpost/prd.md), [spec](devpost/spec.md) and the [build checklist](devpost/checklist.md). The [app map](devpost/app-map.html) is a one-page guide to the finished code: one action traced through three code stops, where to make common changes, and how to run it (download it and open it in a browser, or read it on [htmlpreview](https://htmlpreview.github.io/?https://github.com/Dakshhhhh-ops/intent/blob/main/devpost/app-map.html)).
 
 ## License
 

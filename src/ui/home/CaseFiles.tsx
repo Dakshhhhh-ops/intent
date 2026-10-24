@@ -29,6 +29,12 @@ function firstSentence(s: string): string {
   return m ? m[0] : s;
 }
 
+/** Where a pin sits over step `id`, kept inside the tape at both ends. */
+function pinStyle(id: number, n: number): React.CSSProperties {
+  const x = ((id + 0.5) / n) * 100;
+  return { left: `${x}%`, transform: `translateX(${x > 88 ? '-100%' : x < 12 ? '0' : '-50%'})` };
+}
+
 /** The claim worth showing: the worst verdict, then the shortest sentence. */
 function headline(claims: Claim[]): Claim | undefined {
   const order = { contradicted: 0, stale: 1, unverified: 2, supported: 3 };
@@ -43,7 +49,6 @@ function Stage({ row, index, onOpen }: { row: CaseRow; index: number; onOpen: ()
   const high = a.findings.filter((f) => f.severity === 'high').length;
   const held = a.claims.filter((c) => c.verdict === 'supported').length;
   const n = row.trace.steps.length;
-  const at = (id: number) => `${((id + 0.5) / n) * 100}%`;
 
   return (
     <div className={`sx-stage ${verdict}`} key={row.id}>
@@ -76,14 +81,23 @@ function Stage({ row, index, onOpen }: { row: CaseRow; index: number; onOpen: ()
 
       <div className="sx-tape" aria-hidden="true">
         <div className="sx-pins">
-          {claim && <span style={{ left: at(claim.step) }}>said</span>}
-          {proof !== undefined && (
-            <span className="proof" style={{ left: at(proof) }}>
-              proof
+          {/* Pins that would overlap become one label; all stay inside the tape. */}
+          {claim && proof !== undefined && Math.abs(claim.step - proof) / n < 0.12 ? (
+            <span className="proof" style={pinStyle(proof, n)}>
+              proof · said
             </span>
+          ) : (
+            <>
+              {claim && <span style={pinStyle(claim.step, n)}>said</span>}
+              {proof !== undefined && (
+                <span className="proof" style={pinStyle(proof, n)}>
+                  proof
+                </span>
+              )}
+            </>
           )}
         </div>
-        <div className="sx-blocks">
+        <div className={`sx-blocks ${n > 60 ? 'dense' : ''}`}>
           {row.trace.steps.map((s, i) => (
             <i
               key={s.id}
@@ -99,7 +113,7 @@ function Stage({ row, index, onOpen }: { row: CaseRow; index: number; onOpen: ()
           <b>{n}</b> steps
         </span>
         <span className={`sx-stat ${high ? 'bad' : ''}`}>
-          <b>{a.findings.length}</b> findings{high ? ` · ${high} high` : ''}
+          <b>{a.findings.filter((f) => f.severity !== 'info').length}</b> findings{high ? ` · ${high} high` : ''}
         </span>
         <span className={`sx-stat ${held < a.claims.length ? 'bad' : 'good'}`}>
           <b>

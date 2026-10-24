@@ -318,6 +318,7 @@
   position: absolute;
   bottom: 6px;
   transform: translateX(-50%);
+  white-space: nowrap;
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--cream);
@@ -345,7 +346,7 @@
   opacity: 0.8;
   transform-origin: bottom;
   animation: sx-blk 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both;
-  animation-delay: calc(0.2s + var(--i) * 22ms);
+  animation-delay: calc(0.15s + min(var(--i), 30) * 12ms);
 }
 
 .sx-blocks i.said {
@@ -628,4 +629,21 @@
   .sx-seal {
     animation: none;
   }
+}
+
+/* long runs: hundreds of steps, no gaps, still readable as one tape */
+.sx-blocks.dense {
+  gap: 0;
+}
+
+.sx-blocks.dense i {
+  min-width: 0;
+  border-radius: 0;
+  opacity: 0.9;
+}
+
+.sx-blocks.dense i.said,
+.sx-blocks.dense i.proof {
+  border-radius: 2px;
+  z-index: 1;
 }

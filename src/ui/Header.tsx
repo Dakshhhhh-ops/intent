@@ -44,6 +44,8 @@ export function Header({ onHome, onHelp }: { onHome: () => void; onHelp: () => v
   const dark = typeof document === 'undefined' || document.documentElement.getAttribute('data-theme') !== 'light';
   const [, force] = useState(0);
   const high = run ? run.analysis.findings.filter((f) => f.severity === 'high').length : 0;
+  const lookAt = run ? run.analysis.findings.filter((f) => f.severity !== 'info').length : 0;
+  const projectFiles = run ? run.analysis.files.filter((f) => !f.scratch).length : 0;
 
   return (
     <header className="topbar">
@@ -67,10 +69,9 @@ export function Header({ onHome, onHelp }: { onHome: () => void; onHelp: () => v
             >
               <Icon name={t.icon} size={15} />
               <span className="tab-label">{t.label}</span>
-              {t.id === 'findings' && run.analysis.findings.length > 0 && (
-                <span className={`count ${high ? 'high' : ''}`}>{run.analysis.findings.length}</span>
-              )}
-              {t.id === 'changes' && run.analysis.files.length > 0 && <span className="count">{run.analysis.files.length}</span>}
+              {/* Counts leave out info notes and the agent's scratch files, like the pages they open. */}
+              {t.id === 'findings' && lookAt > 0 && <span className={`count ${high ? 'high' : ''}`}>{lookAt}</span>}
+              {t.id === 'changes' && projectFiles > 0 && <span className="count">{projectFiles}</span>}
             </button>
           ))}
         </nav>

@@ -37,6 +37,7 @@ export function Findings() {
   const [rule, setRule] = useState<RuleId | 'all'>('all');
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const all = run.analysis.findings;
+  const lookAt = all.filter((f) => f.severity !== 'info').length;
   const counts = new Map<RuleId, number>();
   for (const f of all) counts.set(f.rule, (counts.get(f.rule) ?? 0) + 1);
   const list = rule === 'all' ? all : all.filter((f) => f.rule === rule);
@@ -50,7 +51,8 @@ export function Findings() {
         <div className="fx-title">
           <p className="mono-label">Findings</p>
           <h1>
-            {all.length === 0 ? 'Nothing to flag.' : `${all.length} thing${all.length === 1 ? '' : 's'} to look at.`}
+            {/* Info notes are listed but not counted as things to look at. */}
+            {lookAt === 0 ? (all.length ? 'Nothing that needs a look.' : 'Nothing to flag.') : `${lookAt} thing${lookAt === 1 ? '' : 's'} to look at.`}
           </h1>
           <p className="fx-sub">
             {run.analysis.verdict.summary.replace(/\.$/, '')}. {passed.length} of {Object.keys(RULE_INFO).length} checks came back clean.

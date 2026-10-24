@@ -24,3 +24,28 @@ jobs:
           node dist-cli/intent-replay.mjs check examples/csv-quotes-claude.intent.json --fail-on high
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
+
+  # Every push to main that passes the tests publishes the viewer to GitHub Pages (gh-pages branch).
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Publish to gh-pages
+        env:
+          PAGES_REMOTE: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          node scripts/deploy-pages.mjs

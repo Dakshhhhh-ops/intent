@@ -4,7 +4,8 @@ import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const remote = execFileSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim();
+// In GitHub Actions the push URL (with the workflow token) comes from PAGES_REMOTE; locally, origin.
+const remote = process.env.PAGES_REMOTE || execFileSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim();
 const dir = mkdtempSync(join(tmpdir(), 'intent-pages-'));
 const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'inherit' });
 copyFileSync('dist/index.html', join(dir, 'index.html'));

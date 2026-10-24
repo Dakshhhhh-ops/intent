@@ -59,15 +59,18 @@ export function toMarkdown(trace: Trace, a: Analysis, opts: { link?: string } = 
     out.push('');
   }
 
-  if (a.files.length) {
+  const projectFiles = a.files.filter((f) => !f.scratch);
+  const scratchFiles = a.files.length - projectFiles.length;
+  if (projectFiles.length) {
     out.push('### Files changed');
     out.push('');
     out.push('| File | +/− | Edits | Read first? | Notes |');
     out.push('|---|---|---|---|---|');
-    for (const f of a.files) {
+    for (const f of projectFiles) {
       const readFirst = f.created ? 'new file' : f.reads.length && f.reads[0] < f.edits[0] ? 'yes' : '**no**';
       out.push(`| \`${f.path}\` | +${f.added} −${f.removed} | ${f.edits.length} | ${readFirst} | ${f.flags.join(', ') || ''} |`);
     }
+    if (scratchFiles) out.push('', `Plus ${scratchFiles} throwaway file${scratchFiles === 1 ? '' : 's'} in the agent's scratch folder, not counted above.`);
     out.push('');
   }
 

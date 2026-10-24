@@ -1,7 +1,7 @@
 import { diffArrays } from 'diff';
 import type { Claim, FileChange, Finding, RuleId, Severity, Step } from '../types';
 import { secretKinds } from '../redact';
-import { basename, isDocFile, isTestFile, oneLine, splitLines, truncate } from '../util';
+import { basename, isDocFile, isTestFile, oneLine, outsideProject, splitLines, truncate } from '../util';
 import { failedAs, isVerify, masksExitCode, outputLooksFailed, shellCode } from './commands';
 
 // Deterministic review rules. Each one looks at the normalized steps and the
@@ -18,14 +18,6 @@ type Rule = (ctx: RuleContext) => Omit<Finding, 'id'>[];
 
 const plural = (n: number, w: string, ws = `${w}s`) => `${n} ${n === 1 ? w : ws}`;
 const stepRef = (id: number) => `step ${id + 1}`;
-
-/**
- * Outside the project: the parsers make project files relative, so anything absolute or under the
- * home folder (`~/…`, as shared samples spell it) is a scratch or temp file, not the code under review.
- */
-export function outsideProject(p: string): boolean {
-  return /^([a-zA-Z]:)?[\\/]|^~[\\/]/.test(p);
-}
 
 /** Lines removed and added by one edit step. */
 export function lineDelta(s: Step): { added: string[]; removed: string[] } {
@@ -609,17 +601,28 @@ const sensitiveFiles: Rule = ({ files }) => {
 
 const maskedExit: Rule = ({ steps }) => {
   const out: Omit<Finding, 'id'>[] = [];
+  const quiet: number[] = [];
   for (const s of steps) {
     if (!s.command || !isVerify(s.command.categories) || !masksExitCode(s.command.cmd)) continue;
-    const hidden = !s.command.failed && outputLooksFailed(s.command.output);
+    if (!s.command.failed && outputLooksFailed(s.command.output)) {
+      out.push({
+        rule: 'masked-exit-code',
+        severity: 'high',
+        title: 'A failing check looked like a pass',
+        detail: `${cap(stepRef(s.id))} ran \`${truncate(oneLine(s.command.cmd), 100)}\`. The output reports failures, but the pipe hid the exit code, so the run looked successful.`,
+        steps: [s.id],
+        files: [],
+      });
+    } else quiet.push(s.id);
+  }
+  // Piping a passing check is common and usually harmless: one note for the whole run, not an alarm per command.
+  if (quiet.length) {
     out.push({
       rule: 'masked-exit-code',
-      severity: hidden ? 'high' : 'low',
-      title: hidden ? 'A failing check looked like a pass' : 'Check result piped through another command',
-      detail: hidden
-        ? `${cap(stepRef(s.id))} ran \`${truncate(oneLine(s.command.cmd), 100)}\`. The output reports failures, but the pipe hid the exit code, so the run looked successful.`
-        : `${cap(stepRef(s.id))} ran \`${truncate(oneLine(s.command.cmd), 100)}\`. Piping hides the real exit code; the agent only saw part of the output.`,
-      steps: [s.id],
+      severity: 'info',
+      title: quiet.length === 1 ? 'A check result was piped' : `${quiet.length} check results were piped`,
+      detail: `${quiet.length === 1 ? cap(stepRef(quiet[0])) : `Steps ${quiet.slice(0, 6).map((i) => i + 1).join(', ')}${quiet.length > 6 ? ` and ${quiet.length - 6} more` : ''}`} piped a check's output through another command, which hides its real exit code. None of them showed a failure, so this is only a note: the agent saw part of the output, and so does this review.`,
+      steps: quiet,
       files: [],
     });
   }

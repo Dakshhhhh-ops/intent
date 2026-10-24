@@ -217,6 +217,8 @@ export interface FileChange {
   final: BlameLine[] | null;
   diff: DiffLine[];
   isTest: boolean;
+  /** A throwaway file outside the project (the agent's scratch or temp folder). Left out of totals. */
+  scratch?: boolean;
   flags: string[];
   /** Lines the agent wrote and later removed again. */
   churned: number;

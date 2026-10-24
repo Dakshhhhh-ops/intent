@@ -15,26 +15,26 @@
 }
 
 /* entrance on mount (hero) and on scroll (sections) */
+/* Quick on purpose: this is the screen people open most, and it must be readable at once. */
 .bv-in {
-  animation: bv-rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  animation-delay: calc(var(--d, 0) * 90ms);
+  animation: bv-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--d, 0) * 25ms);
 }
 
 @keyframes bv-rise {
   from {
     opacity: 0;
-    transform: translateY(26px);
-    filter: blur(6px);
+    transform: translateY(12px);
   }
 }
 
 .bv-reveal {
   opacity: 0;
-  transform: translateY(34px);
+  transform: translateY(16px);
   transition:
-    opacity 0.8s cubic-bezier(0.2, 0.8, 0.2, 1),
-    transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
-  transition-delay: calc(var(--d, 0) * 80ms);
+    opacity 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition-delay: calc(var(--d, 0) * 40ms);
 }
 
 .bv-reveal.in {
@@ -289,7 +289,7 @@ button.bv-side:hover .bv-quote {
     0 0 0 7px color-mix(in srgb, var(--vt) 35%, transparent),
     0 0 60px -6px color-mix(in srgb, var(--vt) 60%, transparent);
   transform: rotate(-8deg);
-  animation: bv-slam 0.7s cubic-bezier(0.2, 1.5, 0.4, 1) both 0.75s;
+  animation: bv-slam 0.45s cubic-bezier(0.2, 1.5, 0.4, 1) both 0.2s;
 }
 
 .bv-sign {
@@ -398,8 +398,9 @@ button.bv-side:hover .bv-quote {
   cursor: pointer;
   opacity: 0.85;
   transform-origin: bottom;
-  animation: bv-blk 0.6s cubic-bezier(0.2, 1.3, 0.4, 1) both;
-  animation-delay: calc(500ms + var(--i) * 28ms);
+  animation: bv-blk 0.35s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  /* capped, so a long run's tape doesn't take seconds to arrive */
+  animation-delay: calc(100ms + min(var(--i), 30) * 6ms);
   transition:
     transform 0.2s,
     opacity 0.2s,

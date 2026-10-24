@@ -1048,3 +1048,66 @@
   font-size: 13px;
   line-height: 1.55;
 }
+
+/* the agent's throwaway files, folded away under the project files */
+.scratch-group {
+  margin-top: 10px;
+  border-top: 1px dashed var(--border-strong);
+}
+
+.scratch-group summary {
+  display: grid;
+  gap: 2px;
+  padding: 12px 12px 10px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  list-style: none;
+}
+
+.scratch-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.scratch-group summary span {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-3);
+}
+
+.scratch-group[open] summary {
+  color: var(--text);
+}
+
+/* fold away agent bookkeeping in the step list */
+.hk-toggle {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 6px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hk-toggle span {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.hk-toggle:hover {
+  color: var(--text);
+  border-color: var(--text-3);
+}

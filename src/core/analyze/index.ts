@@ -1,4 +1,5 @@
 import type { Analysis, ReviewItem, Severity, Stats, Trace } from '../types';
+import { outsideProject } from '../util';
 import { checkClaims } from './claims';
 import { trackFiles } from './files';
 import { buildPhases, labelSteps } from './phases';
@@ -15,7 +16,9 @@ export interface AnalysisWithContext extends Analysis {
 export function analyze(trace: Trace): AnalysisWithContext {
   const { steps } = trace;
   const tracking = trackFiles(steps);
-  const files = tracking.changed;
+  // Project files first; the agent's scratch files go last and stay out of the totals.
+  for (const f of tracking.changed) f.scratch = outsideProject(f.path);
+  const files = [...tracking.changed.filter((f) => !f.scratch), ...tracking.changed.filter((f) => f.scratch)];
   const stepPhase = labelSteps(steps);
   const phases = buildPhases(steps, stepPhase);
   const claims = checkClaims(steps, files);
@@ -37,7 +40,7 @@ export function analyze(trace: Trace): AnalysisWithContext {
     }
   }
 
-  const stats = computeStats(trace, files.length, tracking.touched.filter((t) => t.reads.length).length);
+  const stats = computeStats(trace, files.filter((f) => !f.scratch).length, tracking.touched.filter((t) => t.reads.length).length);
   const review = buildReview(findings, files);
   const high = findings.filter((f) => f.severity === 'high').length;
   const medium = findings.filter((f) => f.severity === 'medium').length;
@@ -86,7 +89,7 @@ function computeStats(trace: Trace, filesChanged: number, filesRead: number): St
   let added = 0;
   let removed = 0;
   for (const x of s) {
-    if (!x.edit) continue;
+    if (!x.edit || outsideProject(x.edit.path)) continue;
     added += x.edit.added;
     removed += x.edit.removed;
   }

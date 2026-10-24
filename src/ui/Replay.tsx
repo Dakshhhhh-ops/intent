@@ -3,7 +3,7 @@ import type { Step } from '../core/types';
 import { ContextPanel } from './ContextPanel';
 import { Icon, KIND_ICON } from './Icon';
 import { Inspector } from './Inspector';
-import { kindClass, useNav, useRun } from './model';
+import { isHousekeeping, kindClass, useNav, useRun } from './model';
 import { Tape } from './Tape';
 
 const ROW = 32;
@@ -159,11 +159,15 @@ function StepList() {
   const [height, setHeight] = useState(600);
   const box = useRef<HTMLDivElement>(null);
   const flagged = useMemo(() => new Set(run.findingSteps), [run.findingSteps]);
+  // The agent talking to other agents or looking up tools is bookkeeping, not work on the code.
+  const [showHk, setShowHk] = useState(false);
+  const hkCount = useMemo(() => run.trace.steps.filter(isHousekeeping).length, [run.trace.steps]);
 
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return run.trace.steps.filter(
       (s) =>
+        (showHk || needle || !isHousekeeping(s) || flagged.has(s.id) || s.id === nav.step) &&
         matches(s, filter, flagged) &&
         (!needle ||
           s.title.toLowerCase().includes(needle) ||
@@ -171,7 +175,7 @@ function StepList() {
           (s.command?.cmd.toLowerCase().includes(needle) ?? false) ||
           (s.text?.toLowerCase().includes(needle) ?? false)),
     );
-  }, [run.trace.steps, q, filter, flagged]);
+  }, [run.trace.steps, q, filter, flagged, showHk, nav.step]);
 
   useEffect(() => {
     const el = box.current;
@@ -206,6 +210,12 @@ function StepList() {
             </button>
           ))}
         </div>
+        {hkCount > 0 && (
+          <button className="hk-toggle" onClick={() => setShowHk((v) => !v)} aria-pressed={showHk}>
+            {showHk ? 'Hide' : 'Show'} {hkCount} housekeeping step{hkCount === 1 ? '' : 's'}
+            <span>messages to other agents, tool lookups</span>
+          </button>
+        )}
       </div>
       <div className="steplist-scroll" ref={box} onScroll={(e) => setScroll((e.target as HTMLDivElement).scrollTop)}>
         <div style={{ height: visible.length * ROW, position: 'relative' }}>

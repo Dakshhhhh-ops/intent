@@ -159,6 +159,12 @@ export function testSummary(output: string): 'pass' | 'fail' | null {
       verdict = 'fail'; // playwright
     } else if (/^\d+ passed \([\d.]+m?s\)$/.test(l)) {
       verdict ??= 'pass';
+    } else if (/^test result: (ok|FAILED)\./.test(l)) {
+      verdict = l.includes('FAILED') ? 'fail' : 'pass'; // cargo
+    } else if (/^\d+ passing\b/.test(l)) {
+      verdict ??= 'pass'; // mocha
+    } else if (/^[1-9]\d* failing\b/.test(l)) {
+      verdict = 'fail';
     }
   }
   return verdict;
@@ -177,6 +183,41 @@ export function partialTestFilter(cmd: string): string | null {
   const file = cmd.match(/\b(?:vitest(?:\s+run)?|jest|pytest|node\s+--test|mocha|go\s+test)\s+(?:-[\w-]+\s+)*([\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?|[\w./-]*test_\w+\.py|[\w./-]+_test\.go|[\w./-]+\.test\.\w+)\b/);
   if (file) return `only ${file[1]}`;
   return null;
+}
+
+const SCRATCH_DIR = /scratch|\/(?:Temp|tmp)\/|^\/tmp\b|^\$\{?(?:TMPDIR|TEMP|TMP)\b|\$env:(?:TEMP|TMP)\b/i;
+
+/**
+ * The command moves into a scratch or temp folder before it runs, so it checks a throwaway copy,
+ * not the project. Simple `X=...` variables are filled in; the last `cd` wins.
+ */
+export function runsInScratch(cmd: string): boolean {
+  const code = shellCode(cmd);
+  const vars = new Map<string, string>();
+  for (const m of code.matchAll(/(?:^|[\s;&(])\$?([A-Za-z_]\w*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/g)) vars.set(m[1], m[2] ?? m[3] ?? m[4] ?? '');
+  const expand = (t: string) => t.replace(/\$\{?([A-Za-z_]\w*)\}?/g, (all, v: string) => vars.get(v) ?? all);
+  let last: string | null = null;
+  for (const m of code.matchAll(/(?:^|[;&|(]\s*)(?:cd|Set-Location|pushd)\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|)]+))/gi)) last = expand(m[1] ?? m[2] ?? m[3]);
+  return last !== null && SCRATCH_DIR.test(last.replace(/\\/g, '/'));
+}
+
+/** A command that looks at a CI run (GitHub Actions through gh, or act running a workflow locally). */
+export function looksAtCi(cmd: string): boolean {
+  return /\bgh\s+(?:run|workflow|pr\s+checks)\b|\bact\s+(?:-|push|pull_request)|api\.github\.com\/repos\/\S+\/actions/i.test(cmd);
+}
+
+/**
+ * The exit code belongs to the checks: no pipe hides it, and no later command after a `;`
+ * replaces it (`pytest; git status` exits with git's code, not pytest's).
+ */
+export function exitReflectsChecks(cmd: string): boolean {
+  if (masksExitCode(cmd)) return false;
+  const segs = shellCode(cmd)
+    .split(/;|\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (segs.length <= 1) return true;
+  return isVerify(classifyCommand(segs[segs.length - 1]));
 }
 
 /** Exit code was hidden by a pipe or `|| true`. */

@@ -1,6 +1,6 @@
 import type { Claim, ClaimKind, CommandCategory, FileChange, Step } from '../types';
-import { basename, isDocFile, isTestFile, truncate } from '../util';
-import { failedAs, failureHeadline, isVerify, outputLooksFailed, partialTestFilter, shellBroke } from './commands';
+import { basename, isDocFile, isTestFile, oneLine, outsideProject, truncate } from '../util';
+import { exitReflectsChecks, failedAs, failureHeadline, isVerify, looksAtCi, masksExitCode, outputLooksFailed, partialTestFilter, runsInScratch, shellBroke, shellCode, testSummary } from './commands';
 
 // Fact-checks what the agent said at the end of each turn against what the log shows.
 // Claims are found with patterns, not a model, so every verdict is reproducible.
@@ -11,10 +11,13 @@ interface Pattern {
 }
 
 const PATTERNS: Pattern[] = [
-  { kind: 'tests-pass', re: /\b(?:all\s+)?(?:the\s+)?(?:\d+\s+)?(?:unit\s+|e2e\s+|integration\s+)?(?:tests?|test suite|specs?)\b[^.;\n]{0,60}?\b(?:pass(?:es|ing|ed)?|green|succeed(?:s|ed)?|are ok|all ok)\b/i },
+  { kind: 'tests-pass', re: /\b(?:all\s+)?(?:the\s+)?(?:\d+\s+)?(?:unit\s+|e2e\s+|integration\s+)?(?:tests?|test suite|specs?)\b[^.;\n]{0,60}?(?<!-)\b(?:pass(?:es|ing|ed)?|green|succeed(?:s|ed)?|are ok|all ok)\b/i },
   { kind: 'tests-pass', re: /\b\d+\s*(?:\/\s*\d+\s*)?(?:tests?\s+)?passed\b|\bpassing tests?\b|\btests? (?:are|is) (?:now )?(?:passing|green)\b/i },
+  // "CI passes", "the GitHub Actions run is green": checked against a CI run, not local checks.
+  { kind: 'tests-pass', re: /\b(?:CI|GitHub Actions|[Tt]he (?:workflow|pipeline))\b[^.;]{0,30}\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?)\b/ },
   { kind: 'build-pass', re: /\b(?:the\s+)?(?:build|compil(?:e|es|ation))\b[^.;\n]{0,40}?\b(?:pass(?:es)?|succeed(?:s|ed)?|works|clean(?:ly)?|green|successful(?:ly)?|is fine)\b|\bbuilds (?:cleanly|successfully|fine)\b|\bcompiles (?:cleanly|successfully|fine|without errors)\b/i },
-  { kind: 'typecheck-pass', re: /\b(?:type-?check(?:s|ing|er)?|tsc|mypy|pyright|types?)\b[^.;\n]{0,40}?\b(?:pass(?:es)?|clean|no (?:type )?errors|succeeds?)\b/i },
+  // "Types are clean", but not "counts by type and checks with pass icons": a bare "type" must be the subject.
+  { kind: 'typecheck-pass', re: /\b(?:type[- ]?check(?:s|ing|er)?|tsc|mypy|pyright|types?\s+(?:are|is|check)\b)[^.;\n]{0,40}?\b(?:pass(?:es)?|clean|no (?:type )?errors|succeeds?)\b/i },
   { kind: 'lint-pass', re: /\blint(?:s|ing|er)?\b[^.;\n]{0,40}?\b(?:pass(?:es)?|clean|no (?:errors|warnings|issues))\b/i },
   {
     kind: 'no-test-changes',
@@ -51,9 +54,15 @@ export function findClaimsInText(text: string): { kind: ClaimKind; sentence: str
   const found: { kind: ClaimKind; sentence: string; match: RegExpMatchArray }[] = [];
   for (const sentence of sentencesOf(text)) {
     if (sentence.endsWith('?') || sentence.endsWith(':')) continue;
-    if (/\bbeing (fixed|resolved)\b|\b(will|to|should|can|could|would|let me|i['’]ll|going to|need to|make sure)\s+(\w+\s+){0,4}(fix|run|pass)\b/i.test(sentence)) continue;
+    if (/\bbeing (fixed|resolved)\b|\b(will|to|should|can|could|would|let me|i['’]ll|going to|need to|make sure)\s+(\w+\s+){0,4}(fix|run|pass|go green|be green|succeed|work)\b/i.test(sentence)) continue;
     // "assuming the blockers are fixed", "once it's fixed": a condition, not a claim.
     if (/\b(?:assuming|if|until|unless)\b[^.;]{0,50}\b(?:fixed|resolved|pass(?:es)?)\b/i.test(sentence)) continue;
+    // Describing a README badge ("badges: tests passing, MIT license") is not reporting a result.
+    if (/\bbadges?\b/i.test(sentence)) continue;
+    // A rule, not a result: "I only commit when every test passes".
+    if (/\bwhen(?:ever)?\s+(?:every|all|the)\b[^.;]{0,30}\bpass(?:es)?\b/i.test(sentence)) continue;
+    // Advice, not a report: "Add a test that…", "Make sure the build passes".
+    if (/^(?:Add|Make|Run|Write|Use|Keep|Try|Consider|Ensure|Update|Change|Remove|Rename|Move|Delete|Create|Set|Wire|Put|Turn)\b/.test(sentence)) continue;
     // Text in quotes is quoted, not claimed ("Now showing 12 claims: “All tests pass.” …").
     const quoted = [...sentence.matchAll(/“[^”]*”|"[^"]*"/g)].map((q) => [q.index!, q.index! + q[0].length]);
     const kinds = new Set<ClaimKind>();
@@ -131,6 +140,116 @@ const NOUN: Partial<Record<ClaimKind, string>> = {
 
 const E2E = /\b(playwright|cypress|webdriver|puppeteer|e2e)\b/i;
 
+/** Builds that type-check on the way (a plain `vite build` or esbuild does not). */
+const BUILD_TYPECHECKS = /\btsc\b|\bvue-tsc\b|\bnext build\b|\bnuxt build\b|\bng build\b|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b|\bcargo (?:build|check)\b|\bgo build\b|\bdotnet build\b|\bmvn\b|\bgradlew?\b/i;
+
+/** A commit hash named in the claim ("`8f2ae87` is on GitHub, and CI is green"). */
+function shaOf(sentence: string): string | null {
+  return sentence.match(/\b[0-9a-f]{7,40}\b/)?.[0] ?? null;
+}
+
+/**
+ * What CI output says, read strictly: only status words on their own (success, failure, cancelled,
+ * timed_out) count, so text like "failed to fetch" in other output can't flip the verdict. When the
+ * claim names a commit, only that commit's lines (and the indented lines under them) count.
+ */
+function ciStatus(output: string, sentence: string): 'pass' | 'fail' | 'mixed' | 'none' {
+  let lines = output.split('\n');
+  const sha = shaOf(sentence);
+  if (sha) {
+    const keep: string[] = [];
+    let inBlock = false;
+    for (const l of lines) {
+      if (l.includes(sha.slice(0, 7))) inBlock = true;
+      else if (!/^\s/.test(l)) inBlock = false;
+      if (inBlock) keep.push(l);
+    }
+    if (keep.length) lines = keep;
+  }
+  const status = lines.map((l) => l.match(/(?<![\w-])(success|failure|cancelled|timed_out)(?![\w-])/)?.[1]).filter(Boolean);
+  if (!status.length) return 'none';
+  const bad = status.some((s) => s !== 'success');
+  const good = status.includes('success');
+  return bad && good ? 'mixed' : bad ? 'fail' : 'pass';
+}
+
+/**
+ * A claim that hosted CI passed: the CI word is tied to a pass ("GitHub's install step now passes",
+ * "CI is green", "all tests pass on GitHub"). "Built: tests, CI, Docker" lists CI as a thing made, not a result.
+ */
+function isCiClaim(sentence: string): boolean {
+  const ci = String.raw`(?:\bCI\b|\bGitHub(?:['’]s)?\b|\bGitHub Actions\b|\bworkflow\b|\bpipeline\b|\bGitLab\b|\bCircleCI\b)`;
+  const pass = String.raw`\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?|ok)\b`;
+  return new RegExp(`${ci}[^.;,]{0,40}${pass}`).test(sentence) || new RegExp(String.raw`(?<!-)\bpass(?:es|ed)?\s+(?:on|in)\b[^.;]{0,30}${ci}`).test(sentence);
+}
+
+/** Output that shows a check succeeded: "✓ built", "tsc exit 0", "TYPES-OK", "0 errors", "All checks passed!". */
+const SUCCESS_SIGN = /\b(?:ok|passed|success(?:ful(?:ly)?)?|clean|no issues|0 (?:errors?|problems?)|exit:? 0)\b|=\s*0\b|✓|✔/i;
+
+/** The claim is about a separate copy, so a check run in that copy speaks to it. */
+const ABOUT_COPY = /\b(?:copy|scratch|sandbox|separate|clean clone|fresh clone|temp(?:orary)? (?:dir|folder))\b/i;
+
+/**
+ * Why a passing check is not proof, or null when it is. A check in a scratch copy can expose a
+ * failure but cannot vouch for the project; a test run whose exit code a pipe hid counts only if
+ * the runner's own pass summary is still in the output.
+ */
+function weakProof(s: Step, isTest: boolean, aboutCopy: boolean, claimed: number | null = null): string | null {
+  const c = s.command!;
+  if (!aboutCopy && runsInScratch(c.cmd)) {
+    return `The check that passed (step ${s.id + 1}) ran in a scratch copy, not in the project, so it cannot confirm this.`;
+  }
+  if (isTest && !c.failed && !exitReflectsChecks(c.cmd) && testSummary(c.output) !== 'pass') {
+    return masksExitCode(c.cmd)
+      ? `Step ${s.id + 1} piped its output, which hid the exit code, and the part that was kept doesn't show the test summary. There is no proof either way.`
+      : `In step ${s.id + 1} another command ran after the tests, so the exit code is that command's, and the output doesn't show the test summary. There is no proof either way.`;
+  }
+  // "146 of 146 tests pass" backed by a run that printed "8 passed" is not the run the claim describes.
+  if (isTest && claimed !== null) {
+    const shown = shownTestCounts(c.output);
+    const total = shown.reduce((a, b) => a + b, 0);
+    if (shown.length && !shown.includes(claimed) && total !== claimed) {
+      return `The claim says ${claimed} tests, but the run it rests on (step ${s.id + 1}) shows ${shown.join(' and ')}.`;
+    }
+  }
+  // Type check, lint or build whose exit code belongs to something else: the result must show in the output.
+  if (!isTest && !c.failed && !exitReflectsChecks(c.cmd) && !SUCCESS_SIGN.test(c.output)) {
+    return `In step ${s.id + 1} the exit code belongs to another command and the output shows no result for this check. There is no proof either way.`;
+  }
+  // A build piped through grep that printed nothing: the line that would show success never appeared.
+  if (!isTest && c.categories.includes('build') && masksExitCode(c.cmd) && !c.output.trim()) {
+    return `Step ${s.id + 1} filtered the build output and nothing came through, so there is no sign the build succeeded.`;
+  }
+  return null;
+}
+
+/** The number of tests a claim names: "146 of 146 tests", "all 109 tests", "36/36", "| pytest | 155 passed |". */
+export function claimedTestCount(sentence: string): number | null {
+  const m =
+    sentence.match(/\b(\d+)\s*(?:\/\s*\d+|of\s+\d+)\s+(?:\w+\s+){0,2}tests?\b/i) ??
+    sentence.match(/\b(\d+)\s*\/\s*\d+\b/) ??
+    sentence.match(/\ball\s+(\d+)\s+(?:\w+\s+){0,2}tests?\b/i) ??
+    sentence.match(/\b(\d+)\s+(?:\w+\s+){0,2}tests?\s+(?:all\s+)?pass/i) ??
+    sentence.match(/\b(\d+)\s+passed\b/i);
+  return m ? Number(m[1]) : null;
+}
+
+/** Test counts a runner printed: "8 passed", "ℹ pass 75", "Tests  50 passed (50)", "Ran 104 tests". */
+export function shownTestCounts(output: string): number[] {
+  const out: number[] = [];
+  for (const re of [/\b(\d+) passed\b/g, /^\s*(?:ℹ|#)\s*pass\s+(\d+)/gm, /^Ran (\d+) tests?\b/gm, /^\s*(\d+) passing\b/gm]) {
+    for (const m of output.matchAll(re)) out.push(Number(m[1]));
+  }
+  return [...new Set(out)];
+}
+
+/** How many separate fixes a "fixed …" sentence lists. */
+function fixCount(sentence: string): number {
+  const at = sentence.search(/\b(?:fixed|resolved|solved)\b/i);
+  const tail = at >= 0 ? sentence.slice(at) : sentence;
+  return tail.split(/,|;|\band\b/i).map((x) => x.trim()).filter((x) => x.length > 2).length;
+}
+
 /** "All unit tests pass" is about unit tests, not the last Playwright run, and the reverse. */
 function testScope(sentence: string): 'unit' | 'e2e' | null {
   if (/\b(e2e|end-to-end|playwright|cypress|browser tests?)\b/i.test(sentence)) return 'e2e';
@@ -151,20 +270,52 @@ function evaluate(
   files: FileChange[],
 ): Pick<Claim, 'verdict' | 'explanation' | 'evidence'> {
   const before = steps.slice(0, at);
-  const codeEdits = before.filter((s) => s.edit && !isDocFile(s.edit.path));
+  // Changes to scratch files are not changes to the project.
+  const codeEdits = before.filter((s) => s.edit && !isDocFile(s.edit.path) && !outsideProject(s.edit.path));
   const lastEdit = codeEdits[codeEdits.length - 1];
+  const sentence = match.input ?? '';
+
+  // A claim about CI can only be backed by a CI run, not by a local check.
+  if (isCiClaim(sentence)) {
+    const ci = before.filter((s) => s.command && looksAtCi(s.command.cmd));
+    const lastCi = ci[ci.length - 1];
+    if (!lastCi) {
+      return { verdict: 'unverified', explanation: 'This is a claim about CI, and no CI run appears in the log. Local checks cannot confirm it.', evidence: [] };
+    }
+    // A push after the last look at CI means the claim is about a run nobody looked at.
+    const pushedAfter = before.filter((s) => s.id > lastCi.id && s.command && /\bgit\s+push\b/.test(shellCode(s.command.cmd)));
+    if (pushedAfter.length) {
+      const push = pushedAfter[pushedAfter.length - 1];
+      return {
+        verdict: 'stale',
+        explanation: `CI was last checked at step ${lastCi.id + 1}, before new commits were pushed at step ${push.id + 1}. Nothing in the log looks at the run for those commits.`,
+        evidence: [lastCi.id, push.id],
+      };
+    }
+    const status = ciStatus(lastCi.command!.output, sentence);
+    if (status === 'fail') {
+      return { verdict: 'contradicted', explanation: `The last look at CI (step ${lastCi.id + 1}) shows a failing run${shaOf(sentence) ? ` for ${shaOf(sentence)}` : ''}.`, evidence: [lastCi.id] };
+    }
+    if (status === 'pass') {
+      return { verdict: 'supported', explanation: `Step ${lastCi.id + 1} looked at the CI run itself: every result it shows${shaOf(sentence) ? ` for ${shaOf(sentence)}` : ''} succeeded.`, evidence: [lastCi.id] };
+    }
+    return {
+      verdict: 'unverified',
+      explanation: status === 'mixed' ? `Step ${lastCi.id + 1} looked at CI, and the results it shows are mixed.` : `Step ${lastCi.id + 1} looked at CI, but what came back shows no clear result.`,
+      evidence: [lastCi.id],
+    };
+  }
 
   const cat = CATEGORY[kind];
   if (cat) {
     // Typecheck claims are also satisfied by a build that runs tsc, etc.
     // A command the shell could not parse never ran, so it says nothing either way.
-    const sentence = match.input ?? '';
     const scope = cat === 'test' ? testScope(sentence) : null;
     const runs = before.filter(
       (s) =>
         s.command &&
         !shellBroke(s.command) &&
-        (s.command.categories.includes(cat) || (cat === 'typecheck' && s.command.categories.includes('build'))) &&
+        (s.command.categories.includes(cat) || (cat === 'typecheck' && s.command.categories.includes('build') && BUILD_TYPECHECKS.test(s.command.cmd))) &&
         (!scope || (scope === 'e2e') === E2E.test(s.command.cmd)),
     );
     const noun = NOUN[kind]!;
@@ -185,6 +336,8 @@ function evaluate(
         evidence: [last.id],
       };
     }
+    // Weak proof (scratch copy, hidden result) outranks "only part of the suite" as the reason.
+    const weak = weakProof(last, cat === 'test', ABOUT_COPY.test(sentence), cat === 'test' ? claimedTestCount(sentence) : null);
     const filter = cat === 'test' ? partialTestFilter(c.cmd) : null;
     if (filter) {
       // The last run was a subset. What did the last full run say?
@@ -199,10 +352,11 @@ function evaluate(
       }
       return {
         verdict: 'unverified',
-        explanation: `The last test run (step ${last.id + 1}) only ran ${filter}, not the whole suite.`,
+        explanation: weak ?? `The last test run (step ${last.id + 1}) only ran ${filter}, not the whole suite.`,
         evidence: [last.id],
       };
     }
+    if (weak) return { verdict: 'unverified', explanation: weak, evidence: [last.id] };
     if (lastEdit && lastEdit.id > last.id) {
       return {
         verdict: 'stale',
@@ -232,6 +386,7 @@ function evaluate(
     if (commandFailed(last)) {
       return { verdict: 'contradicted', explanation: `The last check after the change (step ${last.id + 1}) failed.`, evidence: [last.id] };
     }
+    const weak = weakProof(last, last.command!.categories.includes('test'), ABOUT_COPY.test(sentence));
     const filter = last.command!.categories.includes('test') ? partialTestFilter(last.command!.cmd) : null;
     if (filter) {
       const fullRuns = before.filter((s) => s.command?.categories.includes('test') && !partialTestFilter(s.command.cmd));
@@ -243,9 +398,20 @@ function evaluate(
           evidence: [lastFull.id, last.id],
         };
       }
-      return { verdict: 'unverified', explanation: `The only check after the change ran ${filter}.`, evidence: [last.id] };
+      return { verdict: 'unverified', explanation: weak ?? `The only check after the change ran ${filter}.`, evidence: [last.id] };
     }
-    return { verdict: 'supported', explanation: `Step ${last.id + 1} checked the change and passed.`, evidence: [last.id] };
+    if (weak) return { verdict: 'unverified', explanation: weak, evidence: [last.id] };
+    // "Fixed A, B, C and D": one check passing cannot vouch for every item unless it ran the whole suite.
+    const items = fixCount(sentence);
+    const fullSuite = last.command!.categories.includes('test') && !partialTestFilter(last.command!.cmd);
+    if (items >= 3 && !fullSuite) {
+      return {
+        verdict: 'unverified',
+        explanation: `The claim lists ${items} fixes, but the only check after the change was step ${last.id + 1} (\`${truncate(oneLine(last.command!.cmd), 70)}\`), which cannot confirm them all.`,
+        evidence: [last.id],
+      };
+    }
+    return { verdict: 'supported', explanation: `Step ${last.id + 1} ran \`${truncate(oneLine(last.command!.cmd), 80)}\` after the change and it passed.`, evidence: [last.id] };
   }
 
   const changedBefore = files.filter((f) => f.edits.some((e) => e < at));

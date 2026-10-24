@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Claim, ClaimKind, Phase, PhaseKind, Severity, Step } from '../core/types';
+import { isVerify, outputLooksFailed } from '../core/analyze/commands';
+import { outsideProject } from '../core/util';
 import { Evidence } from './Evidence';
 import { Icon } from './Icon';
 import { PHASE_LABEL, agentName, fmtOffset, useNav, useRun } from './model';
@@ -113,8 +115,9 @@ export function Brief() {
         </h1>
         {task && (
           <button className="bv-task bv-in" style={{ ['--d' as string]: 2 }} onClick={() => nav.go(task.id)} title="Open the task in the replay">
-            <span className="mono-label">Task · #{task.id + 1}</span>
-            <span className="bv-task-q">{task.text}</span>
+            {/* A shared sample can carry a one-line description; the original prompt stays at its step. */}
+            <span className="mono-label">{trace.description ? `About this run · request at #${task.id + 1}` : `Task · #${task.id + 1}`}</span>
+            <span className="bv-task-q">{trace.description ?? task.text}</span>
           </button>
         )}
 
@@ -448,24 +451,55 @@ interface Chapter {
   segs: { kind: PhaseKind; len: number }[];
 }
 
-/** Phases as chapters; on long runs, one chapter per instruction with its phases as segments. */
+const LOOP = new Set<PhaseKind>(['change', 'verify', 'repair']);
+
+/**
+ * Phases as chapters. Three or more change/check phases in a row become one "Change ↔ check"
+ * chapter, and on long runs chapters are grouped per instruction.
+ */
 function chapters(phases: Phase[], steps: Step[]): Chapter[] {
-  if (phases.length <= 14) {
-    return phases.map((p) => ({ kind: p.kind, label: PHASE_LABEL[p.kind], from: p.from, to: p.to, summary: p.summary, segs: [{ kind: p.kind, len: 1 }] }));
+  const base: Chapter[] = [];
+  for (let i = 0; i < phases.length; ) {
+    let j = i;
+    while (j < phases.length && LOOP.has(phases[j].kind)) j++;
+    if (j - i >= 3) {
+      const group = phases.slice(i, j);
+      const from = group[0].from;
+      const to = group[group.length - 1].to;
+      const span = steps.slice(from, to + 1);
+      const files = new Set(span.filter((s) => s.edit && !outsideProject(s.edit.path)).map((s) => s.edit!.path)).size;
+      const checks = span.filter((s) => s.command && isVerify(s.command.categories));
+      const failed = checks.filter((s) => s.command!.failed || outputLooksFailed(s.command!.output)).length;
+      const cycles = Math.max(1, group.filter((p) => p.kind === 'verify').length);
+      base.push({
+        kind: 'change',
+        label: `Change ↔ check ×${cycles}`,
+        from,
+        to,
+        summary: `${files ? `Edited ${files} project file${files === 1 ? '' : 's'}` : 'Worked in scratch files only'} and ran ${checks.length} check${checks.length === 1 ? '' : 's'}${failed ? `, ${failed} failed` : ''}`,
+        segs: group.map((p) => ({ kind: p.kind, len: p.to - p.from + 1 })),
+      });
+      i = j;
+    } else {
+      const p = phases[i];
+      base.push({ kind: p.kind, label: PHASE_LABEL[p.kind], from: p.from, to: p.to, summary: p.summary, segs: [{ kind: p.kind, len: p.to - p.from + 1 }] });
+      i++;
+    }
   }
+  if (base.length <= 14) return base;
   const out: Chapter[] = [];
   let cur: Chapter | null = null;
-  for (const p of phases) {
-    if (p.kind === 'ask' || !cur) {
-      const prompt = steps[p.from]?.kind === 'prompt' ? steps[p.from] : undefined;
-      cur = { kind: 'ask', label: `Instruction ${out.length + 1}`, from: p.from, to: p.to, summary: prompt ? prompt.title : p.summary, segs: [] };
+  for (const c of base) {
+    if (c.kind === 'ask' || !cur) {
+      const prompt = steps[c.from]?.kind === 'prompt' ? steps[c.from] : undefined;
+      cur = { kind: 'ask', label: `Instruction ${out.length + 1}`, from: c.from, to: c.to, summary: prompt ? prompt.title : c.summary, segs: [] };
       out.push(cur);
     }
-    cur.to = p.to;
-    cur.segs.push({ kind: p.kind, len: p.to - p.from + 1 });
+    cur.to = c.to;
+    cur.segs.push(...c.segs);
   }
   for (const c of out) {
-    const edits = steps.slice(c.from, c.to + 1).filter((s) => s.edit).length;
+    const edits = steps.slice(c.from, c.to + 1).filter((s) => s.edit && !outsideProject(s.edit.path)).length;
     const fails = steps.slice(c.from, c.to + 1).filter((s) => s.command?.failed).length;
     c.summary = `“${c.summary}” · ${c.to - c.from + 1} steps${edits ? `, ${edits} edits` : ''}${fails ? `, ${fails} failed` : ''}`;
   }

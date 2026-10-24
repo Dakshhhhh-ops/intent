@@ -87,7 +87,7 @@ describe('phases', () => {
       ['repair', 4, 4],
       ['report', 5, 5],
     ]);
-    expect(phases[3].summary).toBe('Ran 1 check: 0 passed, 1 failed');
+    expect(phases[3].summary).toBe('Ran 1 check: 1 failed');
     expect(phases[5].summary).toBe('Reported: “All tests pass.”');
   });
 });

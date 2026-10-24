@@ -8,6 +8,7 @@ export function Changes() {
   const run = useRun();
   const nav = useNav();
   const files = run.analysis.files;
+  const scratch = files.filter((f) => f.scratch);
   const file = files.find((f) => f.path === nav.file) ?? files[0];
   const [mode, setMode] = useState<'diff' | 'final'>('diff');
   const [sel, setSel] = useState<{ i: number; line: DiffLine } | null>(null);
@@ -35,27 +36,19 @@ export function Changes() {
   return (
     <div className="changes">
       <aside className="filelist" aria-label="Changed files">
-        {files.map((f) => (
-          <button key={f.path} className="file-item" aria-current={f.path === file.path} onClick={() => nav.openFile(f.path)}>
-            <span className="fp">
-              <Icon name={f.created ? 'create' : f.deleted ? 'delete' : 'edit'} size={13} style={{ color: f.created ? 'var(--create)' : f.deleted ? 'var(--fail)' : 'var(--edit)', flex: 'none' }} />
-              <span title={f.path}>{f.path}</span>
-            </span>
-            <span className="fm">
-              <span className="plus">+{f.added}</span>
-              <span className="minus">−{f.removed}</span>
-              <span>
-                · {f.edits.length} edit{f.edits.length === 1 ? '' : 's'}
-              </span>
-              {f.isTest && <span className="chip low">test</span>}
-              {f.flags.map((fl) => (
-                <span key={fl} className="chip medium">
-                  {fl}
-                </span>
-              ))}
-            </span>
-          </button>
+        {files.filter((f) => !f.scratch).map((f) => (
+          <FileItem key={f.path} f={f} current={f.path === file.path} onOpen={() => nav.openFile(f.path)} />
         ))}
+        {scratch.length > 0 && (
+          <details className="scratch-group" open={!!file.scratch}>
+            <summary>
+              Agent scratch <span>{scratch.length} throwaway file{scratch.length === 1 ? '' : 's'} outside the project</span>
+            </summary>
+            {scratch.map((f) => (
+              <FileItem key={f.path} f={f} current={f.path === file.path} onOpen={() => nav.openFile(f.path)} />
+            ))}
+          </details>
+        )}
       </aside>
       <div className={`diffpane ${sel ? 'with-why' : ''}`}>
         <div className="diff-scroll">
@@ -99,6 +92,30 @@ export function Changes() {
         {sel && <Why file={file} line={sel.line} onClose={() => setSel(null)} />}
       </div>
     </div>
+  );
+}
+
+function FileItem({ f, current, onOpen }: { f: FileChange; current: boolean; onOpen: () => void }) {
+  return (
+    <button className="file-item" aria-current={current} onClick={onOpen}>
+      <span className="fp">
+        <Icon name={f.created ? 'create' : f.deleted ? 'delete' : 'edit'} size={13} style={{ color: f.created ? 'var(--create)' : f.deleted ? 'var(--fail)' : 'var(--edit)', flex: 'none' }} />
+        <span title={f.path}>{f.path}</span>
+      </span>
+      <span className="fm">
+        <span className="plus">+{f.added}</span>
+        <span className="minus">−{f.removed}</span>
+        <span>
+          · {f.edits.length} edit{f.edits.length === 1 ? '' : 's'}
+        </span>
+        {f.isTest && <span className="chip low">test</span>}
+        {f.flags.map((fl) => (
+          <span key={fl} className="chip medium">
+            {fl}
+          </span>
+        ))}
+      </span>
+    </button>
   );
 }
 

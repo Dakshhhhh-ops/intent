@@ -29,6 +29,8 @@ const BOOKKEEPING = new Set([
 ]);
 
 const MAX_OUTPUT = 20_000;
+/** How a background-task notification reads once its XML is stripped. */
+export const BACKGROUND = 'Background task finished:';
 const MAX_CONTENT = 400_000;
 
 interface Pending {
@@ -228,6 +230,11 @@ function readUsage(msg: Json, seen: Set<string>): Usage | undefined {
 
 function cleanPrompt(s: string): string | null {
   let text = s;
+  // Not typed by anyone: Claude Code telling the agent a background task finished.
+  if (/^\s*<task-notification>/.test(text)) {
+    const summary = text.match(/<summary>([\s\S]*?)<\/summary>/)?.[1] ?? text.match(/<status>([\s\S]*?)<\/status>/)?.[1] ?? 'done';
+    return `${BACKGROUND} ${oneLine(summary.trim())}`;
+  }
   // Slash commands: <command-name>/foo</command-name><command-args>…</command-args>
   const cmd = text.match(/<command-name>([^<]*)<\/command-name>/);
   if (cmd) {

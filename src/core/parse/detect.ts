@@ -1,4 +1,5 @@
 import type { Trace } from '../types';
+import { shortenScratch } from '../util';
 import { looksLikeClaudeCode, parseClaudeCode } from './claudeCode';
 import { looksLikeCodex, parseCodex } from './codex';
 import { looksLikeIntentTrace, parseIntentTrace } from './intentTrace';
@@ -43,12 +44,26 @@ export function parseTrace(text: string, name?: string): Trace {
   const fmt = detectFormat(text);
   switch (fmt) {
     case 'claude-code':
-      return parseClaudeCode(text, name);
+      return tidy(parseClaudeCode(text, name));
     case 'codex':
-      return parseCodex(text, name);
+      return tidy(parseCodex(text, name));
     case 'intent-trace':
-      return parseIntentTrace(text);
+      return tidy(parseIntentTrace(text));
     default:
       throw new UnsupportedFormatError();
   }
+}
+
+/** Long scratch-folder paths in commands, titles and output read as $SCRATCH (file paths already do). */
+function tidy(trace: Trace): Trace {
+  for (const s of trace.steps) {
+    s.title = shortenScratch(s.title);
+    if (s.command) {
+      s.command.cmd = shortenScratch(s.command.cmd);
+      s.command.output = shortenScratch(s.command.output);
+    }
+    if (s.output) s.output = shortenScratch(s.output);
+    if (s.detail) s.detail = shortenScratch(s.detail);
+  }
+  return trace;
 }

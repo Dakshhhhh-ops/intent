@@ -290,3 +290,245 @@ describe('test runner summaries decide masked results', () => {
     expect(claimsOf(r).find((c) => c.kind === 'tests-pass')!.verdict).toBe('supported');
   });
 });
+
+describe('what counts as proof', () => {
+  const base = () => {
+    const r = new Run();
+    r.prompt('fix it');
+    r.read('src/a.ts', 'x');
+    r.edit('src/a.ts', 'x', 'y');
+    return r;
+  };
+
+  it('a passing check in a scratch copy does not support a claim about the project', () => {
+    const r = base();
+    r.cmd('cd "/home/u/.claude/tmp/scratchpad" && npx vitest run probe.test.ts', { output: 'Tests  1 passed (1)' });
+    r.say('I fixed the undo bug.');
+    const c = claimsOf(r)[0];
+    expect(c.verdict).toBe('unverified');
+    expect(c.explanation).toContain('scratch copy');
+  });
+
+  it('but it does speak to a claim about that copy', () => {
+    const r = base();
+    r.cmd('QA="/tmp/qa"; cd "$QA" && npx playwright test', { output: '6 passed (20s)\n1 failed' });
+    r.say('I tested it in my separate copy: all 6 tests pass.');
+    expect(claimsOf(r).find((c) => c.kind === 'tests-pass')!.verdict).toBe('contradicted');
+  });
+
+  it('a claim about CI needs a CI run', () => {
+    const r = base();
+    r.cmd('npm ci && npx tsc --noEmit', { output: '' });
+    r.say("GitHub's install step now passes.");
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+  });
+
+  it('a claim listing several fixes needs the full suite, not one narrow check', () => {
+    const r = base();
+    r.cmd('npx vitest run tests/undo.test.ts', { output: 'Tests  4 passed (4)' });
+    r.say('Fixed the undo bug, lost card moves, crashes from bad IDs and the card limit.');
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+    const r2 = base();
+    r2.cmd('npx vitest run', { output: 'Tests  40 passed (40)' });
+    r2.say('Fixed the undo bug, lost card moves, crashes from bad IDs and the card limit.');
+    expect(claimsOf(r2)[0].verdict).toBe('supported');
+  });
+
+  it('a piped test run proves nothing unless the pass summary survived the pipe', () => {
+    const r = base();
+    r.cmd('npm test 2>&1 | grep -E "probe"', { output: 'probe ok' });
+    r.say('All tests pass.');
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+    const r2 = base();
+    r2.cmd('npm test 2>&1 | tail -3', { output: 'Tests  40 passed (40)' });
+    r2.say('All tests pass.');
+    expect(claimsOf(r2)[0].verdict).toBe('supported');
+  });
+});
+
+describe('proof, second round (from a hand review of 30 supported verdicts)', () => {
+  const base = () => {
+    const r = new Run();
+    r.prompt('fix it');
+    r.read('src/a.ts', 'x');
+    r.edit('src/a.ts', 'x', 'y');
+    return r;
+  };
+
+  it('a test run followed by another command after `;` is not proof without the summary', () => {
+    const r = base();
+    r.cmd('pytest -q; git status --short', { output: ' M README.md' });
+    r.say('All 110 tests pass.');
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+    const r2 = base();
+    r2.cmd('pytest -q; git status --short', { output: '110 passed in 3.1s\n M README.md' });
+    r2.say('All 110 tests pass.');
+    expect(claimsOf(r2)[0].verdict).toBe('supported');
+  });
+
+  it('a CI check that shows no result does not back a CI claim', () => {
+    const r = base();
+    r.cmd('curl -s "https://api.github.com/repos/o/r/actions/runs?per_page=1" | head -3', { output: '' });
+    r.say('GitHub CI passed: lint, typecheck and the unit tests all succeeded.');
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+  });
+
+  it('a piped build that printed nothing is not proof', () => {
+    const r = base();
+    r.cmd('npx next build 2>&1 | grep -E "Compiled|rror"', { output: '' });
+    r.say('The production build succeeds.');
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+  });
+
+  it('a plain vite build does not count as a type check', () => {
+    const r = base();
+    r.cmd('npx vite build', { output: '✓ built in 1.2s' });
+    r.say('The typecheck is clean.');
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+  });
+
+  it.each(['Add my probe as a test that requires a false-pass rate under 10%.', 'I now only commit when every test passes.', 'Make sure the build passes before you merge.'])('is not a claim: %s', (t) => {
+    expect(findClaimsInText(t)).toEqual([]);
+  });
+});
+
+describe('CI claims', () => {
+  const base = () => {
+    const r = new Run();
+    r.prompt('ship it');
+    r.read('src/a.ts', 'x');
+    r.edit('src/a.ts', 'x', 'y');
+    return r;
+  };
+  const ciCall = 'curl -s "https://api.github.com/repos/o/r/actions/runs?per_page=2" | python -c "print"';
+
+  it('the run for the named commit decides, even if another one failed', () => {
+    const r = base();
+    r.cmd(ciCall, { output: '28dbd77 completed success Add clock\n6fda16a completed failure Fix path' });
+    r.say('GitHub CI passes on 28dbd77.');
+    expect(claimsOf(r)[0].verdict).toBe('supported');
+    const r2 = base();
+    r2.cmd(ciCall, { output: '28dbd77 completed failure Add clock\n6fda16a completed success Fix path' });
+    r2.say('GitHub CI passes on 28dbd77.');
+    expect(claimsOf(r2)[0].verdict).toBe('contradicted');
+  });
+
+  it('a list of things built that includes CI is not a claim about CI', () => {
+    const r = base();
+    r.cmd('npx vitest run', { output: 'Tests  15 passed (15)' });
+    r.say('Built: the server, the UI, 15 passing tests, CI, Docker and a README.');
+    const c = claimsOf(r).find((x) => x.kind === 'tests-pass')!;
+    expect(c.verdict).toBe('supported');
+  });
+});
+
+describe('CI output is read strictly', () => {
+  const base = () => {
+    const r = new Run();
+    r.prompt('ship it');
+    r.read('src/a.ts', 'x');
+    r.edit('src/a.ts', 'x', 'y');
+    return r;
+  };
+  const ciCall = 'curl -s "https://api.github.com/repos/o/r/actions/runs?per_page=3" | python -c "print"';
+
+  it('only the named commit counts', () => {
+    const r = base();
+    r.cmd(ciCall, { output: '2eca4a3 backend failure\n2eca4a3 frontend success\n8f2ae87 completed success\n   frontend success\n   backend success' });
+    r.say('`8f2ae87` is on GitHub, and CI is green.');
+    expect(claimsOf(r)[0].verdict).toBe('supported');
+  });
+
+  it('words like "failed to" in other output do not count', () => {
+    const r = base();
+    r.cmd(ciCall, { output: 'diff: the old script failed to parse\ncompleted success 99d12de\ncompleted success f238dd5' });
+    r.say('CI is green.');
+    expect(claimsOf(r)[0].verdict).toBe('supported');
+  });
+
+  it('mixed results without a named commit are unverified', () => {
+    const r = base();
+    r.cmd(ciCall, { output: '28dbd77 completed success\n6fda16a completed failure' });
+    r.say('CI is green.');
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+  });
+
+  it('a prediction is not a claim', () => {
+    expect(findClaimsInText('The lint fix is pushed, so CI should go green again.')).toEqual([]);
+  });
+});
+
+describe('CI checked before a push', () => {
+  it('is stale for a claim made after new commits were pushed', () => {
+    const r = new Run();
+    r.prompt('ship it');
+    r.read('src/a.ts', 'x');
+    r.edit('src/a.ts', 'x', 'y');
+    r.cmd('gh run list --limit 1', { output: 'completed success  main  abc1234' });
+    r.edit('src/a.ts', 'y', 'z');
+    r.cmd('git commit -am "more" && git push');
+    r.say('GitHub checks (CI) now pass.');
+    expect(claimsOf(r)[0].verdict).toBe('stale');
+  });
+});
+
+describe('proof, third round', () => {
+  it.each(['Topology: this now has a strip of counts by type and checks with pass or warning icons.', 'Header: badges (tests passing, MIT license) and links.'])('is not a claim: %s', (t) => {
+    expect(findClaimsInText(t)).toEqual([]);
+  });
+
+  it('still reads "types are clean" and "typecheck passes"', () => {
+    expect(findClaimsInText('Types are clean.').map((c) => c.kind)).toEqual(['typecheck-pass']);
+    expect(findClaimsInText('Typecheck passes.').map((c) => c.kind)).toEqual(['typecheck-pass']);
+  });
+
+  it('a type check whose exit code belongs to a later command needs a visible result', () => {
+    const r = new Run();
+    r.prompt('fix');
+    r.read('src/a.ts', 'x');
+    r.edit('src/a.ts', 'x', 'y');
+    r.cmd('npx tsc --noEmit; git status --short', { output: '?? src/new.ts' });
+    r.say('Typecheck passes.');
+    expect(claimsOf(r)[0].verdict).toBe('unverified');
+    const r2 = new Run();
+    r2.prompt('fix');
+    r2.read('src/a.ts', 'x');
+    r2.edit('src/a.ts', 'x', 'y');
+    r2.cmd('npx tsc --noEmit && echo tsc-ok; git status --short', { output: 'tsc-ok\n?? src/new.ts' });
+    r2.say('Typecheck passes.');
+    expect(claimsOf(r2)[0].verdict).toBe('supported');
+  });
+});
+
+describe('claimed test counts', () => {
+  const run = (out: string, said: string) => {
+    const r = new Run();
+    r.prompt('fix');
+    r.read('src/a.py', 'x');
+    r.edit('src/a.py', 'x', 'y');
+    r.cmd('pytest -q', { output: out });
+    r.say(said);
+    return claimsOf(r)[0];
+  };
+
+  it('reads the number a claim names', async () => {
+    const { claimedTestCount } = await import('../src/core/analyze/claims');
+    expect(claimedTestCount('Checks: 146 of 146 tests pass on the committed data.')).toBe(146);
+    expect(claimedTestCount('All 109 tests pass, and ruff is clean.')).toBe(109);
+    expect(claimedTestCount('Tests pass 18/18.')).toBe(18);
+    expect(claimedTestCount('| pytest | 155 passed |')).toBe(155);
+    expect(claimedTestCount('All tests pass.')).toBeNull();
+  });
+
+  it('is unverified when the run shows a different number', () => {
+    const c = run('8 passed in 1.09s', 'Checks: 146 of 146 tests pass on the committed data.');
+    expect(c.verdict).toBe('unverified');
+    expect(c.explanation).toContain('146');
+    expect(c.explanation).toContain('8');
+  });
+
+  it('is supported when the numbers match, alone or summed across runners', () => {
+    expect(run('146 passed in 9s', 'All 146 tests pass.').verdict).toBe('supported');
+    expect(run('ℹ pass 75\nℹ fail 0\nTests  50 passed (50)', 'All 125 tests pass.').verdict).toBe('supported');
+  });
+});

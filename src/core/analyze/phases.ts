@@ -1,5 +1,5 @@
 import type { Phase, PhaseKind, Step } from '../types';
-import { isVerify, outputLooksFailed } from './commands';
+import { isVerify, masksExitCode, outputLooksFailed } from './commands';
 
 // Splits a run into chapters: Ask → Explore → Change → Verify → Repair → Report.
 // Messages take the phase of the action they introduce (they are its intent),
@@ -86,16 +86,20 @@ function summarize(steps: Step[], kind: PhaseKind): string {
   switch (kind) {
     case 'ask': {
       const p = steps.find((s) => s.kind === 'prompt');
-      return p ? `Asked: “${p.title}”` : 'New instruction';
+      if (!p) return 'New instruction';
+      return p.title.startsWith('Background task finished') ? p.title : `Asked: “${p.title}”`;
     }
     case 'report': {
       const m = [...steps].reverse().find((s) => s.kind === 'message');
       return m ? `Reported: “${m.title}”` : 'Wrapped up';
     }
     case 'verify': {
-      const passed = cmds.length - failed;
       if (!cmds.length) return 'Checked its work';
-      return `Ran ${plural(cmds.length, 'check')}: ${passed} passed${failed ? `, ${failed} failed` : ''}`;
+      // A pass whose exit code a pipe hid is not the same as a pass.
+      const hidden = cmds.filter((s) => !s.command!.failed && !outputLooksFailed(s.command!.output) && masksExitCode(s.command!.cmd)).length;
+      const passed = cmds.length - failed - hidden;
+      const out = [passed ? `${passed} passed` : '', hidden ? `${hidden} passed (exit hidden)` : '', failed ? `${failed} failed` : ''].filter(Boolean);
+      return `Ran ${plural(cmds.length, 'check')}: ${out.join(', ')}`;
     }
     default:
       if (reads.size) parts.push(`read ${plural(reads.size, 'file')}`);

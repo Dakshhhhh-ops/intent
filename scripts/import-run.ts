@@ -5,6 +5,9 @@
 //   npm run import-run -- <session.jsonl> <out-name> --root <project dir> --as /home/dev/<name> [--label "Recorded run"]
 //     [--allow "PublicHandle,Name"]  names that are already public, such as a GitHub handle or git author
 //     [--steps 187-295]  keep only that part of the run
+//     [--drop-files docs/a.md,docs/b.md]  leave out steps that only touch these files
+//     [--title "Short title"]
+//     [--redact-lines "regex"]  replace matching lines with a visible "[line removed]" marker
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
@@ -71,9 +74,15 @@ for (const v of new Set([dashed, dashed.toLowerCase(), dashed.charAt(0).toUpperC
 const trace = walk(parseTrace(raw, src));
 // --steps 187-295 keeps only that part of the run (1-based, inclusive), renumbered from the start.
 const range = flag('steps')?.match(/^(\d+)-(\d+)$/);
-if (range) {
-  const [from, to] = [Number(range[1]), Number(range[2])];
-  trace.steps = trace.steps.slice(from - 1, to).map((s, i) => ({ ...s, id: i }));
+// --drop-files a.md,b.md leaves out every step that only touches those files (say, drafts you won't publish).
+const drop = (flag('drop-files') ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+if (range || drop.length) {
+  const [from, to] = range ? [Number(range[1]), Number(range[2])] : [1, trace.steps.length];
+  const touchesOnlyDropped = (files: string[]) => files.length > 0 && files.every((f) => drop.some((d) => f === d || f.endsWith('/' + d)));
+  trace.steps = trace.steps
+    .slice(from - 1, to)
+    .filter((s) => !touchesOnlyDropped(s.files))
+    .map((s, i) => ({ ...s, id: i }));
   const times = trace.steps.map((s) => s.t).filter((t): t is number => t !== null);
   trace.startedAt = times.length ? times[0] : undefined;
   trace.endedAt = times.length ? times[times.length - 1] : undefined;
@@ -81,6 +90,22 @@ if (range) {
 trace.cwd = alias;
 trace.label = label;
 if (description) trace.description = description;
+// --redact-lines "regex" replaces every line that matches with a visible marker, so readers know
+// something was taken out (for example notes about a separate document you won't publish).
+const redactLines = flag('redact-lines');
+if (redactLines) {
+  const re = new RegExp(redactLines, 'i');
+  const marker = '[line removed: about a separate submission draft]';
+  const scrub = <T>(v: T): T => {
+    if (typeof v === 'string') return (re.test(v) ? v.split('\n').map((l) => (re.test(l) ? marker : l)).join('\n') : v) as T;
+    if (Array.isArray(v)) return v.map(scrub) as T;
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrub(x)])) as T;
+    return v;
+  };
+  trace.steps = trace.steps.map(scrub);
+}
+const title = flag('title');
+if (title) trace.title = title;
 trace.id = `${outName}`;
 const json = toIntentTrace(trace);
 

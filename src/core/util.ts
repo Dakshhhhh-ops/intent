@@ -7,7 +7,7 @@ export function toPosix(p: string): string {
 /** Make `p` relative to `cwd` when it lives inside it. Handles Windows drive-letter case. */
 export function relPath(p: string, cwd?: string): string {
   if (!p) return p;
-  let path = toPosix(p.trim());
+  let path = toPosix(shortenScratch(p.trim()));
   if (path.startsWith('file:///')) path = path.slice(8);
   if (!cwd) return path;
   let base = toPosix(cwd);
@@ -23,6 +23,22 @@ export function relPath(p: string, cwd?: string): string {
   if (path.toLowerCase().startsWith(gb.toLowerCase() + '/')) return path.slice(gb.length + 1);
   if (!/^([a-zA-Z]:)?\//.test(path)) return path.replace(/^\.\//, '');
   return path;
+}
+
+/** Claude Code's per-session scratch folder: …/Temp/claude/<project>/<session id>/scratchpad. */
+const SCRATCH_ROOT = /(?:[A-Za-z]:)?[^\s"'`]*?[\\/](?:Temp|tmp)[\\/]claude[^\\/\s"'`]*[\\/][^\\/\s"'`]+[\\/][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\\/]scratchpad(?=[\\/\s"'`]|$)/gi;
+
+/** Long scratch paths read as $SCRATCH, so file lists and commands stay readable. */
+export function shortenScratch(s: string): string {
+  return s.includes('scratchpad') ? s.replace(SCRATCH_ROOT, '$SCRATCH') : s;
+}
+
+/**
+ * Outside the project: the parsers make project files relative, so anything absolute, under the
+ * home folder (`~/…`, as shared samples spell it) or in the scratch folder is not the code under review.
+ */
+export function outsideProject(p: string): boolean {
+  return /^([a-zA-Z]:)?[\\/]|^~[\\/]|^\$SCRATCH\b/.test(p);
 }
 
 export function basename(p: string): string {

@@ -26,7 +26,7 @@ const MANIFEST: Omit<Sample, 'text'>[] = [
     id: 'taskforge-handrail',
     file: 'taskforge-handrail.intent.json',
     title: '“All 6 tests pass.” One failed.',
-    blurb: 'A real, unscripted Claude Code session from building Handrail, an accessible project board. After testing in a separate copy, the agent reports "all 6 tests pass". Its last browser test run printed "1 failed", and a pipe hid that from the exit code. Trimmed to the part of the session where it happens; only machine paths are rewritten.',
+    blurb: 'A real, unscripted Claude Code session from building Handrail, an accessible project board. After testing in a separate copy, the agent reports "all 6 tests pass". Its last browser test run printed "1 failed", and a pipe hid that from the exit code. Trimmed to the part of the session where it happens. Machine paths are rewritten, and lines about a separate submission draft are removed and marked.',
     label: 'Real session',
     agent: 'Claude Code',
   },

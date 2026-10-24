@@ -149,3 +149,10 @@ export function agentName(trace: Trace): string {
   if (trace.source === 'codex') return 'Codex CLI';
   return trace.agentVersion ? trace.agentVersion.replace(/\s+v?\d[\w.+-]*$/, '') : 'Agent';
 }
+
+/** Agent bookkeeping tools: coordinating with other agent windows, looking up tools, timers. */
+const HOUSEKEEPING = new Set(['ToolSearch', 'ListAgents', 'SendMessage', 'TaskStop', 'TaskOutput', 'ScheduleWakeup', 'Monitor', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'CronCreate', 'CronList', 'CronDelete']);
+
+export function isHousekeeping(s: Step): boolean {
+  return s.kind === 'tool' && !!s.tool && HOUSEKEEPING.has(s.tool);
+}

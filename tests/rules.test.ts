@@ -491,16 +491,24 @@ describe('rule: masked-exit-code', () => {
     expect(f.title).toBe('A failing check looked like a pass');
   });
 
-  it('is low when a piped check looks clean', () => {
+  it('is one info note when piped checks look clean', () => {
     const r = new Run();
     r.cmd('npm test | tail -5', { output: 'Tests: 4 passed' });
-    expect(findingsOf(r, 'masked-exit-code')[0].severity).toBe('low');
+    expect(findingsOf(r, 'masked-exit-code')[0].severity).toBe('info');
+  });
+
+  it('collapses every clean piped check into a single note', () => {
+    const r = new Run();
+    for (let i = 0; i < 5; i++) r.cmd('npm test | tail -5', { output: 'Tests: 4 passed' });
+    const all = findingsOf(r, 'masked-exit-code');
+    expect(all).toHaveLength(1);
+    expect(all[0].title).toBe('5 check results were piped');
   });
 
   it('does not read an ESLint warnings-only summary as a failure', () => {
     const r = new Run();
     r.cmd('npm run lint 2>&1 | tail -3', { output: '✖ 144 problems (0 errors, 144 warnings)' });
-    expect(findingsOf(r, 'masked-exit-code')[0].severity).toBe('low');
+    expect(findingsOf(r, 'masked-exit-code')[0].severity).toBe('info');
   });
 
   it('does not fire for unpiped checks or piped non-checks', () => {
@@ -546,5 +554,16 @@ describe('files outside the project', () => {
       expect(findingsOf(r, 'blind-edit')).toEqual([]);
       expect(findingsOf(r, 'weakened-tests')).toEqual([]);
     }
+  });
+});
+
+describe('scratch paths', () => {
+  it('shortens the agent scratch folder and treats it as outside the project', async () => {
+    const { shortenScratch, outsideProject } = await import('../src/core/util');
+    const p = '~/AppData/Local/Temp/claude/home-OneDrive-Desktop-app/2da48f51-feef-4fcc-bbba-e067d1ea2ff0/scratchpad/qa/tests/flaky.spec.ts';
+    expect(shortenScratch(p)).toBe('$SCRATCH/qa/tests/flaky.spec.ts');
+    expect(shortenScratch(`cd "${p.replace('/qa/tests/flaky.spec.ts', '')}" && ls`)).toBe('cd "$SCRATCH" && ls');
+    expect(outsideProject('$SCRATCH/qa/x.ts')).toBe(true);
+    expect(outsideProject('src/x.ts')).toBe(false);
   });
 });

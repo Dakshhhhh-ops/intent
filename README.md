@@ -6,6 +6,12 @@ When Claude Code or Codex finishes a task, you get a diff and a confident summar
 
 **Try it in the browser:** https://dakshhhhh-ops.github.io/intent/ (the main button opens a real Claude Code session; your own logs never leave your machine)
 
+**Watch the 2-minute demo:** https://www.youtube.com/watch?v=UKzPYKwQJnM
+
+[![Intent Replay demo video](docs/demo-video.png)](https://www.youtube.com/watch?v=UKzPYKwQJnM)
+
+The demo walks through a real Claude Code session where the agent said "all 6 tests pass" while its last test run printed `1 failed`: the Brief, the Replay at the step that proves it, blame on a changed line, the Findings, the Stop hook sending a false "done" back (on the scripted sample), a Claude Code vs. Codex comparison, and the measured numbers below.
+
 ![The Brief: the agent's claims stamped against the log](docs/screenshots/brief.png)
 
 ## Measured on real sessions
@@ -136,8 +142,10 @@ If the agent itself runs in CI, its log is on the runner when that step ends, an
 git clone https://github.com/Dakshhhhh-ops/intent && cd intent
 npm install          # also builds dist/ and dist-cli/
 npm run dev          # viewer with hot reload
-npm test             # unit tests: parsers, blame, claims, rules, large-log handling
-npm run e2e          # browser test of the core journey
+npm run typecheck    # TypeScript, no emit
+npm test             # 420 unit tests: parsers, blame, claims, rules, redaction, hook, server, large logs
+npm run e2e          # 8 Playwright tests of the core journey in a real browser
+npm run build        # dist/ (viewer), dist-export/ (offline replay page), dist-cli/ (CLI)
 ```
 
 ## How it works
@@ -157,6 +165,31 @@ session log ──► parser ──► one timeline of steps ──► analyzer 
 Secrets are masked as soon as a log is read, in the UI, in every export and before the local server sends a log to the browser: provider keys (OpenAI, Anthropic, AWS, GitHub, GitLab, npm, Hugging Face, Slack, Stripe, SendGrid, Google, Discord), JWTs, private keys, `Bearer` tokens, passwords in URLs (`postgres://user:pass@…`) and on command lines (`curl -u user:pass`, `wget --password=…`, `mysql -pSECRET`), Slack and Discord webhook URLs, Azure connection strings, AWS-style `aws_secret_access_key = …` lines, `NAME_KEY=` / `_TOKEN=` / `_SECRET=` assignments, and `password` / `token` / `api_key` values in JSON, YAML and config files. Masking is pattern-based, so review an export before sharing it outside your team.
 
 The local viewer (`intent-replay`) listens on 127.0.0.1 only, answers only requests addressed to `127.0.0.1` or `localhost` (which blocks DNS-rebinding attacks from other websites), and requires a random per-run token that is part of the link it opens.
+
+## Under the hood
+
+**One core, three front ends.** `src/core/` (about 5,000 lines of TypeScript) uses no DOM and no Node APIs. The browser viewer, the CLI and the CI check all import it, so a verdict in the web view is the same verdict in the Markdown report and the exit code of `check`.
+
+**Parsing** ([`src/core/parse/`](src/core/parse))
+- `detect.ts` sniffs the format and routes to `claudeCode.ts`, `codex.ts` (both rollout formats, including the JavaScript `exec` cells of Codex 0.162+) or `intentTrace.ts`.
+- `slim.ts` drops dead weight line by line before `JSON.parse`: Claude Code API request dumps, file-history snapshots and base64 images over 2 KB. On a 530 MB session that is over 85% of the bytes, which keeps the log under V8's ~512 MB string limit and cuts parsing from 7.7 s to about 2 s.
+- In the browser, a Web Worker ([`src/ui/parseWorker.ts`](src/ui/parseWorker.ts)) streams and parses the dropped file and reports progress, so a large session never freezes the page.
+
+**Blame** ([`analyze/files.ts`](src/core/analyze/files.ts)). Each touched file is seeded from full reads and Claude Code's `originalFile` snapshots, then every edit is replayed on top (line diffs with the `diff` library). Each line keeps the step that wrote it, which is what Changes shows next to the agent's reason, the files it had read and the last failure before it. Edits that can't be placed exactly fall back to per-hunk attribution and the file is marked partial.
+
+**Commands** ([`analyze/commands.ts`](src/core/analyze/commands.ts)). Shell commands are classified (test, typecheck, build, lint, install, git, run, read, search) across common runners: vitest, jest, mocha, pytest, go test, cargo, dotnet, Maven, Gradle, Playwright, Cypress and others. One command can be several kinds (`npm run build && npm test`). The same module knows when a pipe (`| tail`, `| grep`, `| head`) hides a failing exit code, when a run is filtered to a few tests, when it ran in a scratch copy, and how to read pass/fail summaries out of the output.
+
+**Claims** ([`analyze/claims.ts`](src/core/analyze/claims.ts)). Claims are found with patterns, not a model, so every verdict is reproducible: tests pass, build passes, typecheck/lint clean, CI green, fixed, only changed X, didn't touch the tests. Each is checked against the commands that ran before it and after the last edit, and stamped Supported, Contradicted, Stale or Unverified with links to the evidence steps.
+
+**Rules** ([`analyze/rules.ts`](src/core/analyze/rules.ts)). Deterministic checks for weakened tests, blind edits, failure loops, silenced errors, risky commands, secret exposure, new dependencies, churn, sensitive files, unverified finishes and masked exit codes, each with a severity and the steps it points at. Chapters (Ask, Explore, Change, Verify, Repair, Report) come from [`analyze/phases.ts`](src/core/analyze/phases.ts).
+
+**Viewer** ([`src/ui/`](src/ui)). React 19 and Vite, built into a single self-contained HTML file with `vite-plugin-singlefile`, so the CLI can serve it and GitHub Pages can host it. A second build (`vite build --mode export`) swaps the home page and the bundled samples for stubs and becomes the template for `intent-replay export`: one offline HTML file with the trace embedded. The home page uses Three.js for the 3D flight recorder and GSAP and Lenis for scroll motion.
+
+**CLI** ([`cli/`](cli)). Bundled with esbuild into one Node file. `sessions.ts` finds logs in `~/.claude/projects` and `~/.codex/sessions`; `server.ts` serves the viewer locally (see the security notes above); `hook.ts` is the Claude Code Stop hook, which reads the hook input on stdin, checks only the claims in `last_assistant_message`, and exits 2 with the evidence when one is contradicted.
+
+**Tests and CI.** 420 Vitest unit tests in 13 files cover the parsers, blame, command classification, claims, rules, redaction, the Markdown report, the hook and the local server. [`tests/claims-regression.test.ts`](tests/claims-regression.test.ts) holds hand-reviewed claim cases and reports precision and recall. 8 Playwright tests drive the built viewer through the core journey. [GitHub Actions](.github/workflows/ci.yml) runs typecheck, unit tests, the build, a CLI smoke test (the scripted sample must report Contradicted and fail `check`; the clean run must pass) and the Playwright suite, then publishes the viewer to GitHub Pages on every green push to `main`.
+
+**Stack.** TypeScript, React, Vite, Node.js, esbuild, Three.js, GSAP, Lenis, `diff`, Vitest, Playwright, GitHub Actions, GitHub Pages.
 
 ## Formats
 
@@ -184,11 +217,23 @@ src/core/      parsers, analyzer, rules, claims, redaction, Markdown report (no 
 src/ui/        React viewer
 cli/           intent-replay command (session discovery, local server, report/check/export)
 examples/      sample runs (also bundled into the viewer)
-tests/         unit tests and the end-to-end browser test
+tests/         unit tests, claim regression set, Playwright browser tests (tests/e2e)
+scripts/       sample generation, run import, screenshots, Pages deploy
+docs/          trace format, screenshots, demo video cover
 devpost/       planning documents: scope, PRD, spec, build checklist
 ```
 
+## What's next
+
+- Publish to npm (today it installs from GitHub: `npm i -g github:Dakshhhhh-ops/intent`).
+- More Codex coverage: only 9 Codex sessions were in the audit, and the checks were tuned mostly on Claude Code logs.
+- A Codex counterpart to the Stop hook; for now, Codex runs are checked afterwards with `intent-replay check latest`.
+- More data: the 14% above comes from one developer. Audit summaries from other machines (counts and random keys only) are welcome as [issues](https://github.com/Dakshhhhh-ops/intent/issues).
+
 ## Built for Build With AI: Basics
+
+Demo video: https://www.youtube.com/watch?v=UKzPYKwQJnM
+
 
 This project was planned and built with the Devpost Learn skill pack during the hackathon. The planning documents are in [`devpost/`](devpost): [scope](devpost/scope.md), [PRD](devpost/prd.md), [spec](devpost/spec.md) and the [build checklist](devpost/checklist.md). The [app map](devpost/app-map.html) is a one-page guide to the finished code: one action traced through three code stops, where to make common changes, and how to run it (download it and open it in a browser, or read it on [htmlpreview](https://htmlpreview.github.io/?https://github.com/Dakshhhhh-ops/intent/blob/main/devpost/app-map.html)).
 
